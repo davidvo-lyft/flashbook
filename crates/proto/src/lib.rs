@@ -19,6 +19,7 @@ pub mod clock;
 pub mod event;
 pub mod fixed;
 pub mod instrument;
+pub mod kraken_crc;
 pub mod rawlog;
 
 pub use event::{Event, EventKind, Side, Venue};
