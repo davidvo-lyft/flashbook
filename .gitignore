@@ -1,7 +1,9 @@
 /target
 node_modules/
 .next/
+out/
 .vercel
+.playwright-mcp/
 .DS_Store
 /data/raw/
 /data/store/

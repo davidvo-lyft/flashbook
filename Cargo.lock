@@ -888,6 +888,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "criterion",
+ "crossbeam-channel",
  "dhat",
  "duckdb",
  "flashbook-bus",
@@ -902,6 +903,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
