@@ -94,9 +94,12 @@ pub trait VenueCodec: Send {
     ) -> Result<Signal, CodecError>;
 
     /// Parse a REST book-snapshot body (venues that resync via REST).
-    /// Emits SnapBegin / SnapBid / SnapAsk / SnapEnd events.
+    /// Emits SnapBegin / SnapBid / SnapAsk / SnapEnd events. `instrument`
+    /// is passed by the caller because REST bodies don't self-identify
+    /// (neither Coinbase's `/book` nor Binance's `/depth` echo the symbol).
     fn parse_rest_snapshot(
         &mut self,
+        _instrument: u32,
         _body: &[u8],
         _recv_mono_ns: u64,
         _recv_wall_ns: u64,
