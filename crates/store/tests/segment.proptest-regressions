@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 8d2caf8018fd851899c13ee32b8bb0632c17952e6b54e0d8efda39843bed2429 # shrinks to seed = 0, frac = 0.0
+cc bdc301a79938baddb6d2bd1c7b7c202b4422e48f21f631881ad4690f784595c7 # shrinks to seed = 0, n = 8, be = 1
+cc 9dd0ad6aa77dc460e1a9ad9395b4f0e19ab60ce2c91e0b673696bd1e10748c94 # shrinks to seed = 0, n = 8, gaps = [1628, 1835, 2114, 1982, 1763, 1711, 1435, 563, 341, 1088, 1673, 1558, 785, 653, 2439, 44, 1691, 345, 160, 297, 2692, 2357, 563, 281, 1956, 70, 2362, 1037, 394, 507, 2146, 1676, 1936, 267, 177, 2427, 1564, 1910, 1840, 1498, 166, 870, 1379, 774, 302, 1425, 2659, 558, 1621, 2242, 1940, 2547, 1080, 2432, 1766, 583, 2435, 2741, 2058, 1747, 1358, 2786, 2853, 1998, 81, 356, 587, 1526, 684, 299, 2970, 1824, 515, 678, 446, 312, 279, 1293, 1981, 770, 464, 2553, 2192, 1347, 1750, 318, 2693, 118, 339, 206, 1054, 669, 2020, 2235, 2080, 2297, 513, 1174, 2886, 383, 158, 893], qlo = 1.0296240427389693, qspan = 0.5732242789927625, sealed = true
