@@ -453,12 +453,14 @@ dependencies = [
  "rand 0.9.4",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
 name = "flashbook-bus"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "crossbeam-channel",
  "crossbeam-queue",
  "crossbeam-utils",
