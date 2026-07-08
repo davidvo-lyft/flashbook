@@ -24,10 +24,15 @@ Last updated: 2026-07-07 ~22:45 UTC (session start)
 - [ ] DONE: ops/DONE.md checklist with evidence links
 
 ## Phase status
-- [x] Phase 0: scout + rustup install + repo skeleton  <- IN PROGRESS
-- [ ] Phase 1: proto + feed codecs + capture bin; START SOAK EARLY
-- [ ] Phase 2: lob + replay + Kraken CRC oracle
-- [ ] Phase 3: store + DuckDB/SQLite/Parquet harness
+- [x] Phase 0: scout + rustup install + repo skeleton + public repo + CI
+- [~] Phase 1: proto DONE (28 tests); feed API pinned; real fixtures captured;
+      workflow wf_1a3f3535-cf1 building 3 codecs + capture core (4 builders ->
+      4 docs-verifiers). NEXT: integrate, live smoke, START SOAK.
+- [~] Phase 2 (early): lob book engine DONE inline (BTree + Ladder reps,
+      cross-impl proptests, depth caps, digests; 10 tests). Replay pending.
+- [~] Phase 3 (early): store format layer DONE inline (varint/delta/DoD
+      encodings + CRC'd blocks w/ optional zstd; 19 tests). Writer/reader/
+      index/PIT + DuckDB/SQLite harness pending.
 - [ ] Phase 4: bus + loadgen + e2e latency decomposition
 - [ ] Phase 5: dashboard + deploy + CI green
 - [ ] Phase 6: optimize loop; ATTACKS.md last; ops/DONE.md
