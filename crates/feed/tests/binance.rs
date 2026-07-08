@@ -473,6 +473,100 @@ fn control_ack_and_ignored_types() {
 }
 
 #[test]
+fn server_shutdown_signals_reconnect() {
+    // Binance docs: on serverShutdown the client should reconnect as soon
+    // as possible. Both paths must agree: Signal::Reconnect, no events.
+    let (mut fast, mut slow) = codecs();
+    let frame = br#"{"stream":"!serverShutdown","data":{"e":"serverShutdown","E":1700000000123}}"#;
+    let (sig, ev) = step_both(&mut fast, &mut slow, frame, 1, 1);
+    assert_eq!((sig, ev.len()), (Signal::Reconnect, 0));
+}
+
+#[test]
+fn stale_rest_snapshot_rejected() {
+    // Documented sync step 4: while unsynced, the codec tracks the highest
+    // diff u seen; a REST snapshot with lastUpdateId below that mark must be
+    // rejected (Err, no anchor) so the connection layer retries.
+    let (mut fast, mut slow) = codecs();
+    let lvl = r#"["100.00","1.00"]"#;
+
+    // Unsynced diff up to u=100 sets the high-water mark on both paths.
+    let d = depth_line("BTCUSDT", 90, 100, lvl, "");
+    let (sig, ev) = step_both(&mut fast, &mut slow, d.as_bytes(), 1, 1);
+    assert_eq!((sig, ev.len()), (Signal::None, 0));
+
+    // Snapshot older than the mark: rejected, buffer restored, still unsynced.
+    for c in [&mut fast, &mut slow] {
+        let mut out = vec![Event::ZERO];
+        let res = c.parse_rest_snapshot(BTC, snap_body(50).as_bytes(), 2, 2, &mut out);
+        assert!(
+            matches!(res, Err(CodecError::Structure("stale rest snapshot"))),
+            "stale snapshot not rejected"
+        );
+        assert_eq!(out, vec![Event::ZERO], "buffer not restored");
+    }
+
+    // State stayed Unsynced: a contiguous-looking diff is still dropped
+    // (and advances the mark to 102).
+    let d = depth_line("BTCUSDT", 101, 102, lvl, "");
+    let (sig, ev) = step_both(&mut fast, &mut slow, d.as_bytes(), 3, 3);
+    assert_eq!((sig, ev.len()), (Signal::None, 0));
+
+    // A fresh snapshot at exactly the mark (lastUpdateId >= high-water)
+    // anchors normally and clears the mark; the next diff applies.
+    for c in [&mut fast, &mut slow] {
+        let mut out = Vec::new();
+        assert_eq!(
+            c.parse_rest_snapshot(BTC, snap_body(102).as_bytes(), 4, 4, &mut out)
+                .unwrap(),
+            Signal::None
+        );
+        assert_eq!(out.len(), 5); // Clear + SnapBegin + 1 bid + 1 ask + SnapEnd
+    }
+    let d = depth_line("BTCUSDT", 103, 104, lvl, "");
+    let (sig, ev) = step_both(&mut fast, &mut slow, d.as_bytes(), 5, 5);
+    assert_eq!((sig, ev.len()), (Signal::None, 1));
+    assert_eq!(ev[0].kind, EventKind::BidSet as u8);
+}
+
+#[test]
+fn gap_diff_seeds_stale_snapshot_mark() {
+    // The diff that triggers a sequence gap was itself seen on the stream,
+    // so its u seeds the unsynced high-water mark: a recovery snapshot
+    // predating it is rejected.
+    let (mut fast, mut slow) = codecs();
+    let lvl = r#"["100.00","1.00"]"#;
+    for c in [&mut fast, &mut slow] {
+        let mut out = Vec::new();
+        c.parse_rest_snapshot(BTC, snap_body(10).as_bytes(), 1, 1, &mut out)
+            .unwrap();
+    }
+    // Gap: U=17 > last_u+1=11 -> NeedResync; mark seeded with u=18.
+    let d = depth_line("BTCUSDT", 17, 18, lvl, "");
+    let (sig, ev) = step_both(&mut fast, &mut slow, d.as_bytes(), 2, 2);
+    assert_eq!(sig, Signal::NeedResync { instrument: BTC });
+    assert_eq!(ev.len(), 1);
+    // Recovery snapshot at 17 predates the gap diff's u=18: rejected.
+    for c in [&mut fast, &mut slow] {
+        let mut out = Vec::new();
+        assert!(matches!(
+            c.parse_rest_snapshot(BTC, snap_body(17).as_bytes(), 3, 3, &mut out),
+            Err(CodecError::Structure("stale rest snapshot"))
+        ));
+        assert!(out.is_empty());
+    }
+    // Snapshot at 18 anchors; the straddling diff applies.
+    for c in [&mut fast, &mut slow] {
+        let mut out = Vec::new();
+        c.parse_rest_snapshot(BTC, snap_body(18).as_bytes(), 4, 4, &mut out)
+            .unwrap();
+    }
+    let d = depth_line("BTCUSDT", 18, 20, lvl, "");
+    let (sig, ev) = step_both(&mut fast, &mut slow, d.as_bytes(), 5, 5);
+    assert_eq!((sig, ev.len()), (Signal::None, 1));
+}
+
+#[test]
 fn unknown_symbol_is_rejected() {
     let (mut fast, mut slow) = codecs();
     let lvl = r#"["100.00","1.00"]"#;

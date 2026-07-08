@@ -28,6 +28,13 @@ use crate::scan::{Cursor, parse_rfc3339_ns};
 /// Venue (price, quantity) decimal precisions for the subscribed pairs, as
 /// required by the book checksum. Values fetched from Kraken's
 /// `/0/public/AssetPairs` (`pair_decimals`, `lot_decimals`) on 2026-07-07.
+///
+/// NOTE: this table is a point-in-time snapshot — Kraken can change a
+/// pair's precisions (it has repriced `pair_decimals` before). If a value
+/// drifts, the CRC oracle is the tripwire: every book message's checksum is
+/// recomputed downstream from these decimals, so a change surfaces
+/// immediately as persistent checksum mismatches for that pair. On such a
+/// mismatch storm, re-fetch `/0/public/AssetPairs` and update this table.
 pub fn pair_decimals(venue_symbol: &str) -> Option<(u32, u32)> {
     Some(match venue_symbol {
         "BTC/USD" => (1, 8),
@@ -554,9 +561,12 @@ impl VenueCodec for KrakenCodec {
                 "params": {"channel": "book", "symbol": symbols, "depth": BOOK_DEPTH},
             })
             .to_string(),
+            // `"snapshot": false` matches the capture configuration the
+            // fixtures were recorded with: no historical-trade snapshot on
+            // subscribe, only live trades.
             serde_json::json!({
                 "method": "subscribe",
-                "params": {"channel": "trade", "symbol": symbols},
+                "params": {"channel": "trade", "symbol": symbols, "snapshot": false},
             })
             .to_string(),
         ]
@@ -611,9 +621,11 @@ impl VenueCodec for KrakenCodec {
 /// Rewrite `"price":<number>` / `"qty":<number>` into `"price":"<number>"` /
 /// `"qty":"<number>"` so serde_json hands the untouched decimal token back
 /// as a string (the workspace serde_json lacks the `raw_value` feature, and
-/// its `Number` would round-trip through `f64`). The transform is purely
-/// textual and leaves everything else — including already-quoted or
-/// non-numeric values — byte-for-byte intact. Slow path only; allocates.
+/// its `Number` would round-trip through `f64`). Legal JSON whitespace
+/// between the key's colon and the number is emitted verbatim and the
+/// number that follows it is still quoted. The transform is purely textual
+/// and leaves everything else — including already-quoted or non-numeric
+/// values — byte-for-byte intact. Slow path only; allocates.
 fn quote_numeric_tokens(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 128);
     let mut rest = text;
@@ -635,6 +647,14 @@ fn quote_numeric_tokens(text: &str) -> String {
         };
         let (head, tail) = rest.split_at(at + key_len);
         out.push_str(head);
+        // JSON allows whitespace after the colon; pass it through unchanged
+        // so the value scan below starts at the token itself.
+        let ws = tail
+            .bytes()
+            .take_while(|c| matches!(c, b' ' | b'\t' | b'\n' | b'\r'))
+            .count();
+        out.push_str(&tail[..ws]);
+        let tail = &tail[ws..];
         let n = tail
             .bytes()
             .take_while(|c| matches!(c, b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E'))

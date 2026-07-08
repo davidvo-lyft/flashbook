@@ -16,11 +16,19 @@
 //! - `subscriptions` / `error` -> [`Signal::Control`]; anything else ->
 //!   [`Signal::Ignored`].
 //!
-//! Coinbase's `level2_batch` channel has no in-band book resync protocol:
-//! a reconnect re-snapshots, so gaps never return [`Signal::NeedResync`].
+//! Coinbase documents that dropped messages do occur, and `l2update`
+//! carries no per-message sequence, so a trade-id or heartbeat gap is the
+//! only in-band evidence that the book may have silently lost updates. Any
+//! detected gap therefore returns [`Signal::NeedResync`] for the affected
+//! instrument; the connection layer re-snapshots it via REST
+//! `/book?level=2` ([`VenueCodec::parse_rest_snapshot`]). Out-of-order
+//! matches (lower trade ids, which Coinbase says "can be ignored or
+//! represent a message that has arrived out of order") are still emitted as
+//! `Trade`s but never lower the gap baseline, so a gap is reported (and a
+//! resync requested) exactly once.
 
 use flashbook_proto::{Event, EventKind, Venue, event::flags, parse_fixed};
-use memchr::memmem::Finder;
+use memchr::memmem::{Finder, rfind};
 use serde_json::Value;
 
 use crate::codec::{CodecError, CodecStats, Signal, SymbolTable, VenueCodec};
@@ -117,12 +125,17 @@ impl CoinbaseCodec {
     /// Record a trade id; returns the missed count when a gap-checked trade
     /// id jumps past `last + 1`. `last_match` messages pass
     /// `gap_check = false`: they seed the baseline (first message after
-    /// subscribe) but never trigger a gap themselves.
+    /// subscribe) but never trigger a gap themselves. The baseline is
+    /// advance-only: an out-of-order match with `trade_id <= last` never
+    /// lowers it, so an already-reported gap is not re-reported when the
+    /// straggler (or the next heartbeat) arrives.
     fn note_trade(&mut self, instrument: u32, trade_id: u64, gap_check: bool) -> Option<u64> {
         if let Some((_, last)) = self.last_trade.iter_mut().find(|(i, _)| *i == instrument) {
             let missed =
                 (gap_check && trade_id > last.saturating_add(1)).then(|| trade_id - *last - 1);
-            *last = trade_id;
+            if trade_id > *last {
+                *last = trade_id;
+            }
             missed
         } else {
             // No baseline yet: the first (last_)match never triggers a gap.
@@ -148,6 +161,8 @@ impl CoinbaseCodec {
 
     /// Shared match emission (fast + slow paths): optional `Gap` (aux =
     /// missed count, flags cleared) BEFORE the `Trade` (aux = trade id).
+    /// A gap means the book may have silently dropped messages too, so it
+    /// returns [`Signal::NeedResync`] for the instrument.
     fn emit_match(
         &mut self,
         frame: Frame,
@@ -156,24 +171,34 @@ impl CoinbaseCodec {
         price: i64,
         qty: i64,
         out: &mut Vec<Event>,
-    ) {
+    ) -> Signal {
+        let mut sig = Signal::None;
         if let Some(missed) = self.note_trade(frame.instrument, trade_id, gap_check) {
             let gap = Frame { flags: 0, ..frame };
             out.push(gap.ev(EventKind::Gap, 0, 0, missed));
             self.stats.gaps += 1;
+            sig = Signal::NeedResync {
+                instrument: frame.instrument,
+            };
         }
         out.push(frame.ev(EventKind::Trade, price, qty, trade_id));
+        sig
     }
 
     /// Shared heartbeat emission (fast + slow paths): `Heartbeat` (aux =
     /// venue `last_trade_id`), then a `Gap` (aux = missed trades) AFTER it
-    /// when the venue reports trades we never received.
-    fn emit_heartbeat(&mut self, frame: Frame, last_trade_id: u64, out: &mut Vec<Event>) {
+    /// when the venue reports trades we never received. A gap returns
+    /// [`Signal::NeedResync`] for the instrument (see [`Self::emit_match`]).
+    fn emit_heartbeat(&mut self, frame: Frame, last_trade_id: u64, out: &mut Vec<Event>) -> Signal {
         out.push(frame.ev(EventKind::Heartbeat, 0, 0, last_trade_id));
         if let Some(missed) = self.note_heartbeat(frame.instrument, last_trade_id) {
             out.push(frame.ev(EventKind::Gap, 0, 0, missed));
             self.stats.gaps += 1;
+            return Signal::NeedResync {
+                instrument: frame.instrument,
+            };
         }
+        Signal::None
     }
 
     // ---------------------------------------------------------------- fast
@@ -352,8 +377,7 @@ impl CoinbaseCodec {
             instrument,
             flags: if taker_sell { flags::TAKER_SELL } else { 0 },
         };
-        self.emit_match(frame, trade_id, gap_check, price, qty, out);
-        Ok(Signal::None)
+        Ok(self.emit_match(frame, trade_id, gap_check, price, qty, out))
     }
 
     /// Fast `heartbeat` -> `Heartbeat` (+ optional trailing `Gap`).
@@ -387,8 +411,7 @@ impl CoinbaseCodec {
             instrument,
             flags: 0,
         };
-        self.emit_heartbeat(frame, last_trade_id, out);
-        Ok(Signal::None)
+        Ok(self.emit_heartbeat(frame, last_trade_id, out))
     }
 
     /// Fast WS `snapshot` -> full snapshot bracket, flags `FROM_SNAPSHOT`.
@@ -638,8 +661,7 @@ impl CoinbaseCodec {
             instrument,
             flags: if taker_sell { flags::TAKER_SELL } else { 0 },
         };
-        self.emit_match(frame, trade_id, gap_check, price, qty, out);
-        Ok(Signal::None)
+        Ok(self.emit_match(frame, trade_id, gap_check, price, qty, out))
     }
 
     /// Slow `heartbeat` (see [`CoinbaseCodec::fast_heartbeat`]).
@@ -662,8 +684,7 @@ impl CoinbaseCodec {
             instrument,
             flags: 0,
         };
-        self.emit_heartbeat(frame, last_trade_id, out);
-        Ok(Signal::None)
+        Ok(self.emit_heartbeat(frame, last_trade_id, out))
     }
 
     /// Slow WS `snapshot` (see [`CoinbaseCodec::fast_snapshot`]).
@@ -719,6 +740,24 @@ impl CoinbaseCodec {
         Ok(Signal::None)
     }
 
+    /// Venue timestamp for a REST book body: the LAST `"time":` occurrence.
+    /// The body is serialized bids, asks, sequence, auction_mode, auction,
+    /// time — and in auction mode the `auction` object carries its own
+    /// `time` property, so the first occurrence would be the wrong one; the
+    /// top-level `time` is serialized last. Absent -> 0; unparseable ->
+    /// structure error (matching [`CoinbaseCodec::fast_ts`]).
+    fn rest_ts(body: &[u8]) -> Result<u64, CodecError> {
+        const KEY: &[u8] = b"\"time\":";
+        let Some(at) = rfind(body, KEY) else {
+            return Ok(0);
+        };
+        let mut c = Cursor::new(body);
+        c.set_pos(at + KEY.len());
+        c.skip_ws();
+        let s = c.read_string().ok_or(CodecError::Structure("time"))?;
+        parse_rfc3339_ns(s).ok_or(CodecError::Structure("time"))
+    }
+
     /// REST `/products/<id>/book?level=2` body -> snapshot bracket.
     fn rest_inner(
         &mut self,
@@ -728,7 +767,7 @@ impl CoinbaseCodec {
         recv_wall_ns: u64,
         out: &mut Vec<Event>,
     ) -> Result<Signal, CodecError> {
-        let venue_ts_ns = self.fast_ts(body)?;
+        let venue_ts_ns = Self::rest_ts(body)?;
         let mut c = Cursor::new(body);
         c.skip_past_finder(&self.f_sequence)
             .ok_or(CodecError::Structure("sequence"))?;

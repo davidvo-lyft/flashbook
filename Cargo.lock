@@ -519,8 +519,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "crc32fast",
+ "flashbook-feed",
+ "flashbook-lob",
  "flashbook-proto",
  "proptest",
+ "serde_json",
  "tempfile",
  "thiserror",
  "zstd",

@@ -8,7 +8,10 @@
 //! diffs with `u <= last_u` are stale duplicates, a diff whose `U` exceeds
 //! `last_u + 1` is a sequence gap that forces a resync, and everything else
 //! (including the documented first-diff straddle of `lastUpdateId + 1`)
-//! applies with absolute-quantity semantics.
+//! applies with absolute-quantity semantics. While unsynced the codec tracks
+//! the highest diff `u` seen so a REST snapshot that predates the stream
+//! position is rejected instead of anchoring stale (documented sync step 4),
+//! and a `serverShutdown` notice signals [`Signal::Reconnect`].
 
 use flashbook_proto::event::flags;
 use flashbook_proto::{Event, EventKind, Venue, parse_fixed};
@@ -21,7 +24,12 @@ use crate::scan::Cursor;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DepthState {
     /// No snapshot anchor yet: diffs are fully validated but not applied.
-    Unsynced,
+    Unsynced {
+        /// Highest diff `u` seen while unsynced (the high-water mark).
+        /// A REST snapshot whose `lastUpdateId` is below this is stale
+        /// (documented sync procedure step 4) and must be rejected.
+        high_u: Option<u64>,
+    },
     /// Anchored; `last_u` is the final update id of the last applied diff
     /// (or the snapshot's `lastUpdateId` right after a snapshot).
     Synced {
@@ -76,7 +84,7 @@ impl BinanceCodec {
             .iter()
             .map(|(_, id)| InstState {
                 id,
-                depth: DepthState::Unsynced,
+                depth: DepthState::Unsynced { high_u: None },
                 last_trade: None,
             })
             .collect();
@@ -154,9 +162,14 @@ impl BinanceCodec {
             .state_index(instrument)
             .ok_or(CodecError::UnknownInstrument)?;
         match self.states[idx].depth {
-            DepthState::Unsynced => {
+            DepthState::Unsynced { high_u } => {
                 // Fully validated but not applied: replay re-runs this same
                 // state machine, so dropping pre-snapshot diffs is deterministic.
+                // Track the highest u seen so parse_rest_snapshot can reject a
+                // snapshot that predates the stream position.
+                self.states[idx].depth = DepthState::Unsynced {
+                    high_u: Some(high_u.map_or(final_u, |h| h.max(final_u))),
+                };
                 out.truncate(start);
                 Ok(Signal::None)
             }
@@ -181,7 +194,12 @@ impl BinanceCodec {
                         recv_mono_ns,
                         recv_wall_ns,
                     ));
-                    self.states[idx].depth = DepthState::Unsynced;
+                    // The gap diff itself was seen on the stream, so its u
+                    // seeds the unsynced high-water mark: a recovery snapshot
+                    // must not predate it.
+                    self.states[idx].depth = DepthState::Unsynced {
+                        high_u: Some(final_u),
+                    };
                     self.stats.gaps += 1;
                     Ok(Signal::NeedResync { instrument })
                 } else {
@@ -211,6 +229,11 @@ impl BinanceCodec {
         let idx = self
             .state_index(instrument)
             .ok_or(CodecError::UnknownInstrument)?;
+        // Consecutive per-symbol trade ids on @trade is an EMPIRICAL
+        // assumption, not a documented Binance guarantee (fixture evidence:
+        // 1163 trades, zero id jumps; block trades run on a separate id
+        // sequence). The Gap emitted here is therefore advisory only and
+        // never demands a resync.
         if let Some(prev) = self.states[idx].last_trade
             && trade_id > prev.saturating_add(1)
         {
@@ -343,6 +366,10 @@ impl BinanceCodec {
             self.fast_depth(c, recv_mono_ns, recv_wall_ns, out, start)
         } else if rest.starts_with(b"trade\"") {
             self.fast_trade(c, recv_mono_ns, recv_wall_ns, out)
+        } else if rest.starts_with(b"serverShutdown\"") {
+            // Combined-stream `!serverShutdown` notice: Binance instructs
+            // clients to reconnect as soon as possible. No events.
+            Ok(Signal::Reconnect)
         } else {
             // Recognized envelope, event type we don't handle.
             Ok(Signal::Ignored)
@@ -589,6 +616,9 @@ impl BinanceCodec {
                     out,
                 )
             }
+            // Combined-stream `!serverShutdown` notice: Binance instructs
+            // clients to reconnect as soon as possible. No events.
+            "serverShutdown" => Ok(Signal::Reconnect),
             _ => Ok(Signal::Ignored),
         }
     }
@@ -611,6 +641,16 @@ impl BinanceCodec {
     }
 
     /// REST `/api/v3/depth` body -> snapshot event run + `Synced` anchor.
+    ///
+    /// Request-weight note: the capture layer fetches `limit=1000`, which
+    /// costs weight 50 on `/api/v3/depth` (the 1001-5000 limit tier jumps
+    /// to 250).
+    ///
+    /// Per the documented sync procedure (step 4), a snapshot whose
+    /// `lastUpdateId` is below the highest diff `u` seen while unsynced is
+    /// stale and rejected with `CodecError::Structure("stale rest snapshot")`
+    /// so the connection layer retries with backoff; the high-water mark is
+    /// cleared on successful anchoring.
     fn snapshot_inner(
         &mut self,
         instrument: u32,
@@ -628,6 +668,14 @@ impl BinanceCodec {
             .get("lastUpdateId")
             .and_then(serde_json::Value::as_u64)
             .ok_or(CodecError::Structure("snapshot: lastUpdateId"))?;
+        if let DepthState::Unsynced { high_u: Some(h) } = self.states[idx].depth
+            && last_update_id < h
+        {
+            // The snapshot predates diffs already seen on the stream:
+            // anchoring here would silently skip updates. Reject and stay
+            // Unsynced; the connection layer retries with backoff.
+            return Err(CodecError::Structure("stale rest snapshot"));
+        }
         let bids = v
             .get("bids")
             .and_then(serde_json::Value::as_array)

@@ -91,3 +91,71 @@ re-run at any time.
   undeclared eighth crate and keeps codecs+transport+capture co-versioned.
 - Alternative rejected: separate crates/capture (cleaner compile unit, but a
   structural deviation for marginal benefit).
+
+## D-006 (2026-07-08) — Kraken CRC32 oracle lives in proto, not feed
+
+`kraken_book_crc32` is pure format math (mantissas + precisions -> CRC32);
+placing it in proto lets crates/lob and crates/replay verify books without a
+transport dependency. Alternative rejected: feed-only (forces lob->feed dep,
+inverting the layering); duplicating it (two implementations of a
+correctness oracle is how oracles rot). Validated against 2962+ live venue
+checksums before first use.
+
+## D-007 (2026-07-08) — Two book representations, best-at-end ladder layout
+
+BTreeBook (BTreeMap per side) vs LadderBook (sorted Vec per side). The
+ladder stores bids ascending and asks DESCENDING so the best level of both
+sides sits at the vec END: real L2 traffic clusters near the top, so
+insert/remove memmoves touch only the short tail and best-of-book reads are
+O(1). Both must be behaviorally identical (cross-impl + reference-model
+property tests, same state digests); the replay benchmark picks the shipped
+one (3b publishes the comparison). Books support an optional per-side depth
+cap because Kraken v2 book@depth is maintained AT depth — clients must drop
+levels pushed beyond it or stale deep levels later resurface as phantom
+liquidity (empirically confirmed: CRC checksums only match with truncation
+enabled).
+
+## D-008 (2026-07-08) — Per-column encodings: DoD for clocks, delta for
+sequences/prices, plain zigzag for sizes, optional per-block zstd
+
+Delta-of-delta suits near-constant-increment receive clocks; venue_seq and
+trade ids are +1-ish (delta ~1 byte); prices random-walk near the book
+(delta 1-3 bytes); quantities are repetitive small magnitudes but not
+trending (plain zigzag). Blocks optionally zstd the concatenated columns and
+keep whichever is smaller. Alternatives rejected: one generic encoding for
+all columns (measurably worse fit), FastPFOR/bit-packing SIMD libraries
+(dependency against the from-scratch goal; varints are simple, portable and
+already far below 64 B/event — the benchmark, not vibes, will judge),
+adaptive per-block encoding selection (complexity deferred until 3c numbers
+justify it).
+
+## D-009 (2026-07-08) — Bus is a seqlock broadcast ring, loss-detecting, never blocking
+
+Market-data fan-out semantics: every consumer sees every event, a slow
+consumer loses data and KNOWS it (Lagged{lost}), and the producer never
+blocks or allocates. Slots are [AtomicU64; 8] guarded by per-slot version
+counters using crossbeam-utils' SeqLock ordering recipe — no non-atomic
+reads, so no UB, unlike the classic UnsafeCell seqlock. Alternatives
+rejected: bounded MPMC queues (queue semantics deliver each event to ONE
+consumer — wrong shape); per-subscriber bounded channels with producer-side
+blocking (a slow subscriber would stall the feed); tokio::broadcast as the
+in-process primitive (it is one of the 3d benchmark contenders, not the
+default — the numbers decide the shipped transport).
+
+## D-010 (2026-07-08) — Replay merges by (recv_mono_ns, venue) and resets codecs at connect NOTEs
+
+Cross-venue merge keys on the capture process's monotonic clock (all venues
+were stamped by the same process), ties broken by venue id then within-file
+order — fully deterministic. Codec state resets exactly where capture's
+did (a fresh codec per WS session), mirrored via the in-stream
+{"event":"connect"} NOTE records, so replay reproduces capture's parse
+decisions rather than approximating them.
+
+## D-011 (2026-07-08) — Benchmark honesty is mechanical, not aspirational
+
+Percentiles are nearest-rank over raw samples (no interpolation/fitting;
+small-n high percentiles saturate at max and say so). Every result file
+embeds host, config, n, warmup; files are written atomically and REFUSE
+silent overwrite. BENCHMARKS.md is generated from result files only.
+Alternative rejected: quoting criterion summaries by hand into markdown
+(that's how numbers drift from evidence).

@@ -53,7 +53,7 @@ pub struct RestPlan {
     /// Periodic per-target refresh interval (staggered), if any.
     pub refresh_every: Option<Duration>,
     /// Minimum spacing between consecutive REST requests (rate-limit
-    /// budget; e.g. 1.5 s for Binance `depth?limit=1000` at weight 250).
+    /// budget; e.g. 1.5 s for Binance `depth?limit=1000` at weight 50).
     pub min_spacing: Duration,
 }
 
@@ -94,6 +94,24 @@ impl Default for VenueConfig {
     }
 }
 
+/// WebSocket handshake budget: a TCP/TLS/upgrade handshake that hasn't
+/// completed within this window is declared failed (backoff + retry) so a
+/// stalled connect can never wedge a venue task while the process looks
+/// alive.
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Minimum established-session duration for the reconnect backoff counter
+/// to reset (see [`session_healthy`]).
+pub const HEALTHY_SESSION_MIN: Duration = Duration::from_secs(30);
+
+/// True if a finished session earned a backoff reset: it lasted at least
+/// [`HEALTHY_SESSION_MIN`] AND parsed at least one frame. An accept-then-
+/// drop venue (handshake succeeds, session dies instantly) therefore keeps
+/// escalating backoff instead of being hammered at the floor rate forever.
+pub fn session_healthy(duration: Duration, frames_parsed: u64) -> bool {
+    duration >= HEALTHY_SESSION_MIN && frames_parsed >= 1
+}
+
 /// Deterministic backoff ceiling for `attempt` (0-based):
 /// `min(cap, floor * 2^attempt)`.
 pub fn backoff_ceiling(attempt: u32, floor: Duration, cap: Duration) -> Duration {
@@ -102,17 +120,44 @@ pub fn backoff_ceiling(attempt: u32, floor: Duration, cap: Duration) -> Duration
 }
 
 /// Exponential backoff with full jitter: uniform in
-/// `[floor, backoff_ceiling(attempt)]`. Always at least `floor`, never more
-/// than `cap`.
+/// `[floor, max(backoff_ceiling(attempt), 2*floor)]`, capped at `cap`.
+/// Always at least `floor`, never more than `cap`. Even attempt 0 jitters
+/// (uniform in `[floor, 2*floor]`) so instances never retry in lockstep at
+/// exactly the floor rate.
 pub fn next_backoff(attempt: u32, floor: Duration, cap: Duration) -> Duration {
     use rand::Rng as _;
-    let ceil = backoff_ceiling(attempt, floor, cap);
+    let ceil = backoff_ceiling(attempt, floor, cap)
+        .max(floor.saturating_mul(2))
+        .min(cap);
     if ceil <= floor {
         return floor;
     }
     let span = (ceil - floor).as_nanos() as u64;
     let jitter = rand::rng().random_range(0..=span);
     floor + Duration::from_nanos(jitter)
+}
+
+/// Parse an HTTP `Retry-After` header value (delta-seconds form) into a
+/// venue-wide REST pause. Absent or unparseable (e.g. HTTP-date form)
+/// values default to 120 s; the result is always clamped to
+/// `[1 s, 3600 s]`. Used on Binance 429/418 responses, where honoring the
+/// header is the documented way to avoid extending an IP ban.
+pub fn retry_after_delay(header: Option<&str>) -> Duration {
+    const DEFAULT: Duration = Duration::from_secs(120);
+    const MIN: Duration = Duration::from_secs(1);
+    const MAX: Duration = Duration::from_secs(3600);
+    header
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .map_or(DEFAULT, Duration::from_secs)
+        .clamp(MIN, MAX)
+}
+
+/// Rate-limit predicate for unparseable-frame warns, keyed by the 1-based
+/// count of parse errors this session: full detail for the first 5 after
+/// each connect, then only every 1000th (a venue-wide format change would
+/// otherwise emit gigabytes of identical warns per day).
+pub fn should_log_parse_error(nth: u64) -> bool {
+    nth <= 5 || nth.is_multiple_of(1000)
 }
 
 /// Idle-watchdog arithmetic: the instant at which a connection that last
@@ -200,6 +245,10 @@ pub fn parse_rest_envelope(env: &[u8]) -> Result<(u32, &[u8]), EnvelopeError> {
 /// payload snippet. Guarantees `out` gains no events from a failed message
 /// (buffer length is restored on every error path).
 ///
+/// `session_parse_errors` is a per-connection counter (reset on connect);
+/// warn logging is rate-limited through it via [`should_log_parse_error`]
+/// so a venue format change cannot flood the log.
+///
 /// Returns the effective [`Signal`], or `None` if the message could not be
 /// parsed at all.
 pub fn process_payload<C: VenueCodec + ?Sized>(
@@ -208,6 +257,7 @@ pub fn process_payload<C: VenueCodec + ?Sized>(
     recv_mono_ns: u64,
     recv_wall_ns: u64,
     stats: &VenueStats,
+    session_parse_errors: &mut u64,
     out: &mut Vec<Event>,
 ) -> Option<Signal> {
     use std::sync::atomic::Ordering;
@@ -230,8 +280,16 @@ pub fn process_payload<C: VenueCodec + ?Sized>(
     };
     out.truncate(base);
     stats.parse_errors.fetch_add(1, Ordering::Relaxed);
-    let snippet = String::from_utf8_lossy(&payload[..payload.len().min(200)]);
-    tracing::warn!(error = %err, payload = %snippet, "unparseable frame");
+    *session_parse_errors += 1;
+    if should_log_parse_error(*session_parse_errors) {
+        let snippet = String::from_utf8_lossy(&payload[..payload.len().min(200)]);
+        tracing::warn!(
+            error = %err,
+            payload = %snippet,
+            session_parse_errors = *session_parse_errors,
+            "unparseable frame"
+        );
+    }
     None
 }
 
@@ -250,12 +308,13 @@ pub fn account_events(stats: &VenueStats, out: &[Event]) {
     }
 }
 
-/// Per-connection REST scheduler state: one optional deadline per target,
-/// serialized globally by `min_spacing`.
+/// Per-connection REST scheduler state: one optional deadline and one
+/// failure-backoff attempt counter per target, serialized globally by
+/// `min_spacing`.
 struct RestSched {
     due: Vec<Option<Instant>>,
     last_fetch: Option<Instant>,
-    attempt: u32,
+    attempts: Vec<u32>,
 }
 
 impl RestSched {
@@ -273,7 +332,7 @@ impl RestSched {
         Self {
             due,
             last_fetch: None,
-            attempt: 0,
+            attempts: vec![0; plan.targets.len()],
         }
     }
 
@@ -338,27 +397,46 @@ where
         }
         let mut codec = codec_factory();
         let url = codec.ws_url();
-        let ws = match tokio_tungstenite::connect_async(url.as_str()).await {
-            Ok((ws, resp)) => {
+        // Bound the handshake (a stalled TCP/TLS connect would otherwise
+        // wedge this task forever with the process looking alive) and race
+        // it against shutdown so ^C never waits on a dead venue.
+        let connected = tokio::select! {
+            r = tokio::time::timeout(
+                CONNECT_TIMEOUT,
+                tokio_tungstenite::connect_async(url.as_str()),
+            ) => r,
+            _ = shutdown.changed() => continue,
+        };
+        let ws = match connected {
+            Ok(Ok((ws, resp))) => {
                 tracing::info!(venue = venue.name(), url = %url, status = %resp.status(), "connected");
-                ws
+                Some(ws)
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 tracing::warn!(venue = venue.name(), url = %url, error = %e, "connect failed");
-                let delay = next_backoff(attempt, cfg.backoff_floor, cfg.backoff_cap);
-                attempt = attempt.saturating_add(1);
-                tokio::select! {
-                    () = tokio::time::sleep(delay) => {}
-                    _ = shutdown.changed() => {}
-                }
-                continue;
+                None
             }
+            Err(_) => {
+                tracing::warn!(venue = venue.name(), url = %url, timeout_s = CONNECT_TIMEOUT.as_secs(), "connect timed out");
+                None
+            }
+        };
+        let Some(ws) = ws else {
+            // A timed-out handshake is a failed attempt like any other.
+            let delay = next_backoff(attempt, cfg.backoff_floor, cfg.backoff_cap);
+            attempt = attempt.saturating_add(1);
+            tokio::select! {
+                () = tokio::time::sleep(delay) => {}
+                _ = shutdown.changed() => {}
+            }
+            continue;
         };
         note(
             &mut sink,
             &format!("{{\"event\":\"connect\",\"url\":{url:?}}}"),
         )?;
-        attempt = 0;
+        let session_start = Instant::now();
+        let mut frames_parsed = 0u64;
         match run_session(
             venue,
             &cfg,
@@ -368,14 +446,23 @@ where
             &stats,
             &http,
             &mut shutdown,
+            &mut frames_parsed,
             &mut out,
         )
         .await?
         {
             SessionEnd::Shutdown => break,
             SessionEnd::Reconnect => {
+                // Reset the backoff counter only once a session has proven
+                // healthy; an accept-then-drop venue keeps escalating.
+                let healthy = session_healthy(session_start.elapsed(), frames_parsed);
+                if healthy {
+                    attempt = 0;
+                }
                 let delay = next_backoff(attempt, cfg.backoff_floor, cfg.backoff_cap);
-                attempt = attempt.saturating_add(1);
+                if !healthy {
+                    attempt = attempt.saturating_add(1);
+                }
                 tokio::select! {
                     () = tokio::time::sleep(delay) => {}
                     _ = shutdown.changed() => {}
@@ -390,7 +477,8 @@ where
 
 /// One established-connection session: subscribe, then read frames until
 /// the connection dies or shutdown is requested. `Err` is unrecoverable
-/// (raw-log IO failure).
+/// (raw-log IO failure). `frames_parsed` counts successfully parsed frames
+/// so the caller can apply the [`session_healthy`] backoff-reset rule.
 #[allow(clippy::too_many_arguments)]
 async fn run_session<C: VenueCodec>(
     venue: Venue,
@@ -403,10 +491,12 @@ async fn run_session<C: VenueCodec>(
     stats: &VenueStats,
     http: &reqwest::Client,
     shutdown: &mut watch::Receiver<bool>,
+    frames_parsed: &mut u64,
     out: &mut Vec<Event>,
 ) -> anyhow::Result<SessionEnd> {
     use std::sync::atomic::Ordering;
 
+    let mut session_parse_errors = 0u64;
     let (mut tx, mut rx) = ws.split();
     for sub in codec.subscribe_messages() {
         if let Err(e) = tx.send(Message::Text(sub.into())).await {
@@ -458,20 +548,37 @@ async fn run_session<C: VenueCodec>(
                         stats.msgs.fetch_add(1, Ordering::Relaxed);
                         stats.bytes.fetch_add(payload.len() as u64, Ordering::Relaxed);
                         out.clear();
-                        let sig = process_payload(codec, payload, mono, wall, stats, out);
+                        let sig = process_payload(
+                            codec, payload, mono, wall, stats, &mut session_parse_errors, out,
+                        );
+                        if sig.is_some() {
+                            *frames_parsed += 1;
+                        }
                         account_events(stats, out);
-                        if let Some(Signal::NeedResync { instrument }) = sig {
-                            stats.resyncs.fetch_add(1, Ordering::Relaxed);
-                            match cfg.rest.targets.iter().position(|t| t.instrument == instrument) {
-                                Some(idx) => rest.due[idx] = Some(Instant::now()),
-                                None => {
-                                    // No REST plan (Kraken): resync by reconnecting,
-                                    // which re-delivers a full snapshot on subscribe.
-                                    tracing::warn!(venue = venue.name(), instrument, "resync without REST plan; reconnecting");
-                                    disconnect_note(sink, stats, "resync")?;
-                                    return Ok(SessionEnd::Reconnect);
+                        match sig {
+                            Some(Signal::NeedResync { instrument }) => {
+                                stats.resyncs.fetch_add(1, Ordering::Relaxed);
+                                match cfg.rest.targets.iter().position(|t| t.instrument == instrument) {
+                                    Some(idx) => rest.due[idx] = Some(Instant::now()),
+                                    None => {
+                                        // No REST plan (Kraken): resync by reconnecting,
+                                        // which re-delivers a full snapshot on subscribe.
+                                        tracing::warn!(venue = venue.name(), instrument, "resync without REST plan; reconnecting");
+                                        disconnect_note(sink, stats, "resync")?;
+                                        return Ok(SessionEnd::Reconnect);
+                                    }
                                 }
                             }
+                            Some(Signal::Reconnect) => {
+                                // Venue advised this connection is going away
+                                // (e.g. Binance serverShutdown): reconnect
+                                // proactively instead of waiting for the close.
+                                tracing::warn!(venue = venue.name(), "venue advised reconnect");
+                                stats.reconnects.fetch_add(1, Ordering::Relaxed);
+                                note(sink, "{\"event\":\"reconnect\",\"reason\":\"venue-advisory\"}")?;
+                                return Ok(SessionEnd::Reconnect);
+                            }
+                            _ => {}
                         }
                         continue;
                     }
@@ -557,8 +664,28 @@ async fn fetch_rest<C: VenueCodec>(
             }
         },
         Ok(resp) => {
-            tracing::warn!(venue = venue.name(), url = %target.url, status = %resp.status(), "rest request rejected");
-            reschedule_rest_failure(rest, idx);
+            let status = resp.status();
+            if matches!(status.as_u16(), 429 | 418) {
+                // Documented rate-limit / IP-ban responses (Binance):
+                // honor Retry-After for the WHOLE venue, otherwise every
+                // retry extends the ban.
+                let delay = retry_after_delay(
+                    resp.headers()
+                        .get(reqwest::header::RETRY_AFTER)
+                        .and_then(|v| v.to_str().ok()),
+                );
+                tracing::warn!(
+                    venue = venue.name(),
+                    url = %target.url,
+                    status = %status,
+                    retry_after_s = delay.as_secs(),
+                    "rest rate limited; pausing all REST targets"
+                );
+                reschedule_rest_rate_limited(rest, idx, delay);
+            } else {
+                tracing::warn!(venue = venue.name(), url = %target.url, status = %status, "rest request rejected");
+                reschedule_rest_failure(rest, idx);
+            }
             return Ok(());
         }
         Err(e) => {
@@ -567,32 +694,66 @@ async fn fetch_rest<C: VenueCodec>(
             return Ok(());
         }
     };
-    rest.attempt = 0;
     let (mono, wall) = (clock::mono_ns(), clock::wall_ns());
     let env = rest_envelope(target.instrument, &target.venue_symbol, &target.url, &body);
     sink.append(rkind::REST_SNAPSHOT, mono, wall, &env)?;
     stats.rest_snaps.fetch_add(1, Ordering::Relaxed);
     out.clear();
     match codec.parse_rest_snapshot(target.instrument, &body, mono, wall, out) {
-        Ok(_) => account_events(stats, out),
+        Ok(Signal::NeedResync { .. }) => {
+            // Snapshot fetched but unusable for sync (e.g. stale vs. the
+            // buffered diff stream): refetch with backoff instead of
+            // waiting a whole refresh period while diffs are dropped.
+            account_events(stats, out);
+            stats.resyncs.fetch_add(1, Ordering::Relaxed);
+            tracing::warn!(venue = venue.name(), url = %target.url, "rest snapshot needs resync; refetching with backoff");
+            reschedule_rest_failure(rest, idx);
+            return Ok(());
+        }
+        Ok(_) => {
+            account_events(stats, out);
+            rest.attempts[idx] = 0;
+        }
         Err(e) => {
+            // A 200-but-unparseable body (including a codec-rejected stale
+            // snapshot) must retry with backoff, NOT wait for the periodic
+            // refresh: the codec may be Unsynced and dropping every diff.
             stats.parse_errors.fetch_add(1, Ordering::Relaxed);
             let snippet = String::from_utf8_lossy(&body[..body.len().min(200)]);
             tracing::warn!(venue = venue.name(), url = %target.url, error = %e, body = %snippet, "rest snapshot parse failed");
+            reschedule_rest_failure(rest, idx);
+            return Ok(());
         }
     }
     rest.due[idx] = cfg.rest.refresh_every.map(|p| Instant::now() + p);
     Ok(())
 }
 
-/// Reschedule a failed REST fetch with exponential backoff (1 s floor,
-/// 60 s cap), leaving the WS session untouched.
+/// Reschedule a failed REST fetch with per-target exponential backoff
+/// (1 s floor, 60 s cap), leaving the WS session untouched.
 fn reschedule_rest_failure(rest: &mut RestSched, idx: usize) {
     let delay = next_backoff(
-        rest.attempt,
+        rest.attempts[idx],
         Duration::from_secs(1),
         Duration::from_secs(60),
     );
-    rest.attempt = rest.attempt.saturating_add(1);
+    rest.attempts[idx] = rest.attempts[idx].saturating_add(1);
     rest.due[idx] = Some(Instant::now() + delay);
+}
+
+/// Venue-wide REST pushback after an HTTP 429/418: every scheduled
+/// target's due time is pushed out to at least `now + delay` (the limit is
+/// per-IP, not per-endpoint), the offending target retries exactly then,
+/// and a failure attempt is counted against it.
+fn reschedule_rest_rate_limited(rest: &mut RestSched, idx: usize, delay: Duration) {
+    let due = Instant::now() + delay;
+    rest.attempts[idx] = rest.attempts[idx].saturating_add(1);
+    rest.due[idx] = Some(due);
+    for d in &mut rest.due {
+        if let Some(at) = d
+            && *at < due
+        {
+            *at = due;
+        }
+    }
 }

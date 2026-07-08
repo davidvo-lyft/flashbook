@@ -76,11 +76,13 @@ fn parse_both(payload: &[u8], mono: u64, wall: u64) -> (Signal, Vec<Event>) {
 
 /// Feed a sequence of payloads through one fast and one slow codec (shared
 /// state across the sequence) and assert per-message identical output.
-/// Returns the fast codec's per-message event vectors and final gap count.
-fn run_sequence(payloads: &[&[u8]]) -> (Vec<Vec<Event>>, u64) {
+/// Returns the fast codec's per-message event vectors, per-message signals,
+/// and final gap count.
+fn run_sequence(payloads: &[&[u8]]) -> (Vec<Vec<Event>>, Vec<Signal>, u64) {
     let mut fast = codec();
     let mut slow = codec();
     let mut all = Vec::new();
+    let mut sigs = Vec::new();
     for (i, p) in payloads.iter().enumerate() {
         let mono = 100 + i as u64;
         let wall = 200 + i as u64;
@@ -91,10 +93,11 @@ fn run_sequence(payloads: &[&[u8]]) -> (Vec<Vec<Event>>, u64) {
         assert_eq!(sig_f, sig_s, "signal mismatch at msg {i}");
         assert_eq!(out_f, out_s, "events mismatch at msg {i}");
         all.push(out_f);
+        sigs.push(sig_f);
     }
     assert_eq!(fast.stats().gaps, slow.stats().gaps);
     let gaps = fast.stats().gaps;
-    (all, gaps)
+    (all, sigs, gaps)
 }
 
 fn synth_match(ty: &str, trade_id: u64, side: &str, product: &str, seq: u64) -> String {
@@ -334,7 +337,7 @@ fn snapshot_ordering_and_level_counts() {
 fn maker_side_mapping_both_directions() {
     let maker_buy = synth_match("match", 10, "buy", "BTC-USD", 500);
     let maker_sell = synth_match("match", 11, "sell", "BTC-USD", 501);
-    let (all, gaps) = run_sequence(&[maker_buy.as_bytes(), maker_sell.as_bytes()]);
+    let (all, _sigs, gaps) = run_sequence(&[maker_buy.as_bytes(), maker_sell.as_bytes()]);
     assert_eq!(gaps, 0);
     assert_eq!(all[0].len(), 1);
     assert_eq!(all[0][0].kind, EventKind::Trade as u8);
@@ -345,14 +348,17 @@ fn maker_side_mapping_both_directions() {
 }
 
 /// Trade-gap injection: consecutive trade ids increment by 1; a jump emits
-/// Gap(aux = missed) BEFORE the Trade. First match never gaps (no baseline).
+/// Gap(aux = missed) BEFORE the Trade and signals NeedResync for the
+/// instrument (the l2 book may have silently dropped messages too). First
+/// match never gaps (no baseline).
 #[test]
 fn trade_gap_injection() {
     let m1 = synth_match("match", 100, "sell", "BTC-USD", 900);
     let m2 = synth_match("match", 105, "sell", "BTC-USD", 901);
-    let (all, gaps) = run_sequence(&[m1.as_bytes(), m2.as_bytes()]);
+    let (all, sigs, gaps) = run_sequence(&[m1.as_bytes(), m2.as_bytes()]);
     assert_eq!(gaps, 1);
     assert_eq!(all[0].len(), 1, "first match: baseline only, no gap");
+    assert_eq!(sigs[0], Signal::None, "gap-free match: no resync");
     assert_eq!(all[1].len(), 2);
     assert_eq!(all[1][0].kind, EventKind::Gap as u8);
     assert_eq!(all[1][0].aux, 4); // 101..=104 missed
@@ -360,19 +366,78 @@ fn trade_gap_injection() {
     assert_eq!(all[1][0].flags, 0);
     assert_eq!(all[1][1].kind, EventKind::Trade as u8);
     assert_eq!(all[1][1].aux, 105);
+    assert_eq!(sigs[1], Signal::NeedResync { instrument: 1 });
 
     // Gap tracking is per instrument: an ETH trade doesn't disturb BTC.
     let m3 = synth_match("match", 7, "sell", "ETH-USD", 1);
     let m4 = synth_match("match", 106, "sell", "BTC-USD", 902);
-    let (all2, gaps2) = run_sequence(&[m1.as_bytes(), m3.as_bytes(), m4.as_bytes()]);
+    let (all2, sigs2, gaps2) = run_sequence(&[m1.as_bytes(), m3.as_bytes(), m4.as_bytes()]);
     assert_eq!(gaps2, 1); // 101..=105 missed on BTC
     assert_eq!(all2[2][0].kind, EventKind::Gap as u8);
     assert_eq!(all2[2][0].aux, 5);
+    assert_eq!(sigs2[2], Signal::NeedResync { instrument: 1 });
+}
+
+/// Out-of-order matches (documented by Coinbase: lower trade ids "can be
+/// ignored or represent a message that has arrived out of order") must
+/// never roll the baseline backwards: the sequence 100, 102, 101, 103
+/// produces exactly ONE gap (at 102, one resync), the straggler 101 is
+/// still emitted as a Trade, and 103 is contiguous with the advanced
+/// baseline.
+#[test]
+fn out_of_order_matches_report_gap_once() {
+    let m100 = synth_match("match", 100, "sell", "BTC-USD", 1);
+    let m102 = synth_match("match", 102, "sell", "BTC-USD", 2);
+    let m101 = synth_match("match", 101, "sell", "BTC-USD", 3);
+    let m103 = synth_match("match", 103, "sell", "BTC-USD", 4);
+    let (all, sigs, gaps) = run_sequence(&[
+        m100.as_bytes(),
+        m102.as_bytes(),
+        m101.as_bytes(),
+        m103.as_bytes(),
+    ]);
+    assert_eq!(gaps, 1, "exactly one gap for 100,102,101,103");
+    assert_eq!(all[0].len(), 1, "baseline seed");
+    assert_eq!(sigs[0], Signal::None);
+    assert_eq!(all[1].len(), 2, "102 skips 101: gap + trade");
+    assert_eq!(all[1][0].kind, EventKind::Gap as u8);
+    assert_eq!(all[1][0].aux, 1);
+    assert_eq!(sigs[1], Signal::NeedResync { instrument: 1 });
+    assert_eq!(all[2].len(), 1, "straggler 101: trade only, no new gap");
+    assert_eq!(all[2][0].kind, EventKind::Trade as u8);
+    assert_eq!(all[2][0].aux, 101);
+    assert_eq!(sigs[2], Signal::None);
+    assert_eq!(all[3].len(), 1, "103 contiguous with baseline 102");
+    assert_eq!(all[3][0].kind, EventKind::Trade as u8);
+    assert_eq!(sigs[3], Signal::None);
+}
+
+/// A regressed trade id followed by a heartbeat must not double-report the
+/// already-reported gap: before the advance-only fix, the straggler lowered
+/// the baseline to 101 and hb(102) re-reported the same missing trade.
+#[test]
+fn out_of_order_match_then_heartbeat_reports_once() {
+    let m100 = synth_match("match", 100, "sell", "BTC-USD", 1);
+    let m102 = synth_match("match", 102, "sell", "BTC-USD", 2);
+    let m101 = synth_match("match", 101, "sell", "BTC-USD", 3);
+    let hb102 = synth_heartbeat(102, "BTC-USD", 4);
+    let (all, sigs, gaps) = run_sequence(&[
+        m100.as_bytes(),
+        m102.as_bytes(),
+        m101.as_bytes(),
+        hb102.as_bytes(),
+    ]);
+    assert_eq!(gaps, 1, "the 101 gap is reported once, at m102");
+    assert_eq!(sigs[1], Signal::NeedResync { instrument: 1 });
+    assert_eq!(all[3].len(), 1, "heartbeat alone: no re-reported gap");
+    assert_eq!(all[3][0].kind, EventKind::Heartbeat as u8);
+    assert_eq!(sigs[3], Signal::None);
 }
 
 /// Heartbeat cross-check: last_trade_id ahead of the last seen trade emits
-/// Gap AFTER the Heartbeat; once reported, the baseline advances so the
-/// same gap is not re-reported. No baseline (no matches yet) => no gap.
+/// Gap AFTER the Heartbeat and signals NeedResync; once reported, the
+/// baseline advances so the same gap is not re-reported. No baseline (no
+/// matches yet) => no gap.
 #[test]
 fn heartbeat_gap_detection() {
     let hb_cold = synth_heartbeat(999, "BTC-USD", 10);
@@ -380,7 +445,7 @@ fn heartbeat_gap_detection() {
     let hb_ok = synth_heartbeat(100, "BTC-USD", 12);
     let hb_ahead = synth_heartbeat(103, "BTC-USD", 13);
     let hb_again = synth_heartbeat(103, "BTC-USD", 14);
-    let (all, gaps) = run_sequence(&[
+    let (all, sigs, gaps) = run_sequence(&[
         hb_cold.as_bytes(),
         m.as_bytes(),
         hb_ok.as_bytes(),
@@ -389,13 +454,28 @@ fn heartbeat_gap_detection() {
     ]);
     assert_eq!(gaps, 1);
     assert_eq!(all[0].len(), 1, "no baseline: heartbeat alone");
+    assert_eq!(sigs[0], Signal::None);
     assert_eq!(all[2].len(), 1, "matching last_trade_id: no gap");
+    assert_eq!(sigs[2], Signal::None, "gap-free heartbeat: no resync");
     assert_eq!(all[3].len(), 2);
     assert_eq!(all[3][0].kind, EventKind::Heartbeat as u8);
     assert_eq!(all[3][0].aux, 103);
     assert_eq!(all[3][1].kind, EventKind::Gap as u8);
     assert_eq!(all[3][1].aux, 3); // trades 101..=103 never arrived
+    assert_eq!(sigs[3], Signal::NeedResync { instrument: 1 });
     assert_eq!(all[4].len(), 1, "gap reported once, baseline advanced");
+    assert_eq!(sigs[4], Signal::None);
+}
+
+/// NeedResync carries the instrument that actually lost sync (ETH here,
+/// not the codec's first instrument).
+#[test]
+fn need_resync_carries_gapped_instrument() {
+    let m1 = synth_match("match", 100, "sell", "ETH-USD", 1);
+    let m2 = synth_match("match", 105, "sell", "ETH-USD", 2);
+    let (_all, sigs, gaps) = run_sequence(&[m1.as_bytes(), m2.as_bytes()]);
+    assert_eq!(gaps, 1);
+    assert_eq!(sigs[1], Signal::NeedResync { instrument: 2 }); // ETH-USD
 }
 
 /// `last_match` seeds the per-instrument baseline (never gap-checked), so
@@ -405,7 +485,7 @@ fn last_match_seeds_baseline() {
     let lm = synth_match("last_match", 50, "buy", "ETH-USD", 1);
     let m1 = synth_match("match", 51, "sell", "ETH-USD", 2);
     let m2 = synth_match("match", 53, "sell", "ETH-USD", 3);
-    let (all, gaps) = run_sequence(&[lm.as_bytes(), m1.as_bytes(), m2.as_bytes()]);
+    let (all, _sigs, gaps) = run_sequence(&[lm.as_bytes(), m1.as_bytes(), m2.as_bytes()]);
     assert_eq!(gaps, 1);
     assert_eq!(all[0].len(), 1);
     assert_eq!(all[0][0].kind, EventKind::Trade as u8);
@@ -461,6 +541,33 @@ fn rest_snapshot_golden() {
     assert_eq!(out[2 + n_bids].price, 6_352_788_000_000);
     assert_eq!(out[2 + n_bids].qty, 1_800);
     assert_eq!(c.stats().events, out.len() as u64);
+}
+
+/// REST body in auction mode: the `auction` object carries its own `time`
+/// property, serialized BEFORE the top-level `time` (body order is bids,
+/// asks, sequence, auction_mode, auction, time). venue_ts must come from
+/// the top-level (last) `time`, not the auction's.
+#[test]
+fn rest_snapshot_auction_mode_uses_top_level_time() {
+    let body = br#"{"bids":[["100.00","1.5",3]],"asks":[["100.10","2.0",1]],"sequence":777,"auction_mode":true,"auction":{"open_price":"100.05","open_size":"0.1","best_bid_price":"100.00","best_bid_size":"1.5","best_ask_price":"100.10","best_ask_size":"2.0","auction_state":"collection","can_open":"no","time":"2026-07-07T09:00:00Z"},"time":"2026-07-07T10:00:00.123456Z"}"#;
+    let mut c = codec();
+    let mut out = Vec::new();
+    let sig = c
+        .parse_rest_snapshot(1, body, 3, 4, &mut out)
+        .expect("auction-mode body parses");
+    assert_eq!(sig, Signal::None);
+    // Clear + SnapBegin + 1 bid + 1 ask + SnapEnd
+    assert_eq!(out.len(), 5);
+    assert_eq!(out[2].kind, EventKind::SnapBid as u8);
+    assert_eq!(out[2].price, 10_000_000_000);
+    assert_eq!(out[3].kind, EventKind::SnapAsk as u8);
+    for e in &out {
+        // 2026-07-07T10:00:00.123456Z — the top-level time, NOT the
+        // auction's 09:00:00 (1_783_414_800_000_000_000).
+        assert_eq!(e.venue_ts_ns, 1_783_418_400_123_456_000);
+        assert_eq!(e.venue_seq, 777);
+        assert_eq!(e.flags, flags::FROM_SNAPSHOT | flags::SYNTHETIC);
+    }
 }
 
 /// One malformed-input case: payload plus a predicate over the error kind.

@@ -9,8 +9,9 @@ use std::time::Duration;
 
 use flashbook_feed::codec::{CodecError, CodecStats, Signal, VenueCodec};
 use flashbook_feed::conn::{
-    self, EnvelopeError, backoff_ceiling, idle_deadline, next_backoff, parse_rest_envelope,
-    process_payload, rest_envelope, stagger_offset,
+    self, EnvelopeError, HEALTHY_SESSION_MIN, backoff_ceiling, idle_deadline, next_backoff,
+    parse_rest_envelope, process_payload, rest_envelope, retry_after_delay, session_healthy,
+    should_log_parse_error, stagger_offset,
 };
 use flashbook_feed::sink::{RotatingRawLog, SinkGauges, meta_json, should_rotate};
 use flashbook_feed::stats::{EmitterEntry, VenueStats, emit_lines, run_stats_emitter};
@@ -337,6 +338,34 @@ async fn stats_emitter_appends_jsonl_ticks() {
     }
 }
 
+#[tokio::test]
+async fn stats_emitter_flushes_final_batch_on_shutdown() {
+    // A run far shorter than the emit period must still leave one full
+    // batch behind (the final flush on shutdown).
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("stats.jsonl");
+    let entries = vec![entry(Venue::Kraken, 3, 30, 1, 10)];
+    let (tx, rx) = tokio::sync::watch::channel(false);
+    let h = tokio::spawn(run_stats_emitter(
+        entries,
+        path.clone(),
+        Duration::from_secs(3600), // would never tick during the test
+        rx,
+    ));
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    tx.send(true).unwrap();
+    h.await.unwrap();
+
+    let contents = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<&str> = contents.trim_end().split('\n').collect();
+    assert_eq!(lines.len(), 2, "final flush = one venue line + one total");
+    for line in lines {
+        let v: serde_json::Value = serde_json::from_str(line).unwrap();
+        assert!(v["venue"] == "kraken" || v["venue"] == "total");
+        assert_eq!(v["msgs"].as_u64(), Some(3));
+    }
+}
+
 // ------------------------------------------------------------------ backoff
 
 #[test]
@@ -357,9 +386,26 @@ fn backoff_jitter_stays_in_bounds_and_spreads() {
     let floor = Duration::from_secs(1);
     let cap = Duration::from_secs(60);
 
-    // attempt 0: ceiling == floor, no jitter possible.
+    // attempt 0 jitters too: uniform in [floor, 2*floor], so retries never
+    // hammer a venue at exactly 1/floor in lockstep.
+    let samples0: Vec<Duration> = (0..1000).map(|_| next_backoff(0, floor, cap)).collect();
+    for s in &samples0 {
+        assert!(*s >= floor, "attempt 0 below floor: {s:?}");
+        assert!(*s <= floor * 2, "attempt 0 above 2*floor: {s:?}");
+    }
+    let mid = floor + Duration::from_millis(500);
+    assert!(
+        samples0.iter().any(|s| *s > mid),
+        "attempt 0 never jittered up"
+    );
+    assert!(
+        samples0.iter().any(|s| *s < mid),
+        "attempt 0 never jittered down"
+    );
+
+    // Degenerate cap == floor: the cap still wins (no jitter possible).
     for _ in 0..100 {
-        assert_eq!(next_backoff(0, floor, cap), floor);
+        assert_eq!(next_backoff(0, floor, floor), floor);
     }
 
     // attempt 6 (capped): full jitter over [1s, 60s].
@@ -385,6 +431,58 @@ fn backoff_jitter_stays_in_bounds_and_spreads() {
         let c1 = backoff_ceiling(attempt + 1, floor, cap);
         assert_eq!(c1, (c0 * 2).min(cap));
     }
+}
+
+#[test]
+fn session_health_rule_gates_backoff_reset() {
+    // Healthy = lasted >= HEALTHY_SESSION_MIN AND parsed >= 1 frame.
+    assert!(session_healthy(HEALTHY_SESSION_MIN, 1));
+    assert!(session_healthy(Duration::from_secs(7200), 1_000_000));
+    // Accept-then-drop venue: session too short, never resets backoff.
+    assert!(!session_healthy(
+        HEALTHY_SESSION_MIN - Duration::from_millis(1),
+        1
+    ));
+    assert!(!session_healthy(Duration::from_millis(50), 10_000));
+    // Long-lived but silent/unparseable session is not healthy either.
+    assert!(!session_healthy(Duration::from_secs(7200), 0));
+    assert!(!session_healthy(Duration::ZERO, 0));
+}
+
+#[test]
+fn retry_after_parsing_and_clamping() {
+    // Delta-seconds form, honored as-is inside the clamp range.
+    assert_eq!(retry_after_delay(Some("300")), Duration::from_secs(300));
+    assert_eq!(retry_after_delay(Some(" 42 ")), Duration::from_secs(42));
+    assert_eq!(retry_after_delay(Some("1")), Duration::from_secs(1));
+    assert_eq!(retry_after_delay(Some("3600")), Duration::from_secs(3600));
+    // Clamped to [1 s, 3600 s].
+    assert_eq!(retry_after_delay(Some("0")), Duration::from_secs(1));
+    assert_eq!(retry_after_delay(Some("999999")), Duration::from_secs(3600));
+    // Absent or unparseable (HTTP-date form, garbage) -> 120 s default.
+    assert_eq!(retry_after_delay(None), Duration::from_secs(120));
+    assert_eq!(
+        retry_after_delay(Some("Wed, 21 Oct 2026 07:28:00 GMT")),
+        Duration::from_secs(120)
+    );
+    assert_eq!(retry_after_delay(Some("")), Duration::from_secs(120));
+    assert_eq!(retry_after_delay(Some("-5")), Duration::from_secs(120));
+    assert_eq!(retry_after_delay(Some("12.5")), Duration::from_secs(120));
+}
+
+#[test]
+fn parse_error_warn_rate_limit_schedule() {
+    // Full detail for the first 5 errors of a session...
+    for n in 1..=5u64 {
+        assert!(should_log_parse_error(n), "error #{n} must log");
+    }
+    // ...then only every 1000th.
+    assert!(!should_log_parse_error(6));
+    assert!(!should_log_parse_error(999));
+    assert!(should_log_parse_error(1000));
+    assert!(!should_log_parse_error(1001));
+    assert!(should_log_parse_error(2000));
+    assert!(!should_log_parse_error(2001));
 }
 
 // ---------------------------------------------------------- REST envelopes
@@ -446,9 +544,18 @@ fn rest_envelope_rejects_malformed() {
 fn fast_path_success_and_resync_signal() {
     let mut codec = MockCodec::new();
     let stats = VenueStats::default();
+    let mut errs = 0u64;
     let mut out = Vec::new();
 
-    let sig = process_payload(&mut codec, b"fast frame", 10, 20, &stats, &mut out);
+    let sig = process_payload(
+        &mut codec,
+        b"fast frame",
+        10,
+        20,
+        &stats,
+        &mut errs,
+        &mut out,
+    );
     assert_eq!(sig, Some(Signal::None));
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].recv_mono_ns, 10);
@@ -456,9 +563,18 @@ fn fast_path_success_and_resync_signal() {
     assert_eq!(codec.slow_calls, 0, "fast success must not touch slow path");
     assert_eq!(stats.fallbacks.load(Ordering::Relaxed), 0);
     assert_eq!(stats.parse_errors.load(Ordering::Relaxed), 0);
+    assert_eq!(errs, 0, "success must not bump the session error counter");
 
     out.clear();
-    let sig = process_payload(&mut codec, b"gap frame", 11, 21, &stats, &mut out);
+    let sig = process_payload(
+        &mut codec,
+        b"gap frame",
+        11,
+        21,
+        &stats,
+        &mut errs,
+        &mut out,
+    );
     assert_eq!(sig, Some(Signal::NeedResync { instrument: 11 }));
     conn::account_events(&stats, &out);
     assert_eq!(stats.events.load(Ordering::Relaxed), 1);
@@ -469,14 +585,24 @@ fn fast_path_success_and_resync_signal() {
 fn structure_error_falls_back_to_slow() {
     let mut codec = MockCodec::new();
     let stats = VenueStats::default();
+    let mut errs = 0u64;
     let mut out = vec![MockCodec::event(EventKind::Heartbeat, 1, 1)]; // pre-existing
 
-    let sig = process_payload(&mut codec, b"slow frame", 30, 40, &stats, &mut out);
+    let sig = process_payload(
+        &mut codec,
+        b"slow frame",
+        30,
+        40,
+        &stats,
+        &mut errs,
+        &mut out,
+    );
     assert_eq!(sig, Some(Signal::None));
     assert_eq!(codec.fast_calls, 1);
     assert_eq!(codec.slow_calls, 1);
     assert_eq!(stats.fallbacks.load(Ordering::Relaxed), 1);
     assert_eq!(stats.parse_errors.load(Ordering::Relaxed), 0);
+    assert_eq!(errs, 0, "fallback success is not a parse error");
     // Pre-existing event untouched, two new ones appended by the slow path.
     assert_eq!(out.len(), 3);
     assert_eq!(out[0].kind, EventKind::Heartbeat as u8);
@@ -488,31 +614,65 @@ fn structure_error_falls_back_to_slow() {
 fn both_paths_failing_counts_error_and_restores_buffer() {
     let mut codec = MockCodec::new();
     let stats = VenueStats::default();
+    let mut errs = 0u64;
     let mut out = vec![MockCodec::event(EventKind::Heartbeat, 1, 1)];
 
     // MockCodec's slow path appends a partial event before erroring; the
     // policy must roll the buffer back to exactly its prior contents.
-    let sig = process_payload(&mut codec, b"bad frame", 50, 60, &stats, &mut out);
+    let sig = process_payload(
+        &mut codec,
+        b"bad frame",
+        50,
+        60,
+        &stats,
+        &mut errs,
+        &mut out,
+    );
     assert_eq!(sig, None);
     assert_eq!(codec.fast_calls, 1);
     assert_eq!(codec.slow_calls, 1);
     assert_eq!(stats.fallbacks.load(Ordering::Relaxed), 0);
     assert_eq!(stats.parse_errors.load(Ordering::Relaxed), 1);
+    assert_eq!(errs, 1, "session error counter tracks parse errors");
     assert_eq!(
         out.len(),
         1,
         "no partial garbage events for a failed message"
     );
     assert_eq!(out[0].kind, EventKind::Heartbeat as u8);
+
+    // The counter keeps climbing across failures (rate-limit input).
+    for _ in 0..4 {
+        let _ = process_payload(
+            &mut codec,
+            b"bad frame",
+            51,
+            61,
+            &stats,
+            &mut errs,
+            &mut out,
+        );
+    }
+    assert_eq!(errs, 5);
+    assert_eq!(stats.parse_errors.load(Ordering::Relaxed), 5);
 }
 
 #[test]
 fn non_structure_error_skips_slow_path() {
     let mut codec = MockCodec::new();
     let stats = VenueStats::default();
+    let mut errs = 0u64;
     let mut out = Vec::new();
 
-    let sig = process_payload(&mut codec, b"unknown symbol", 70, 80, &stats, &mut out);
+    let sig = process_payload(
+        &mut codec,
+        b"unknown symbol",
+        70,
+        80,
+        &stats,
+        &mut errs,
+        &mut out,
+    );
     assert_eq!(sig, None);
     assert_eq!(codec.fast_calls, 1);
     assert_eq!(
@@ -521,6 +681,7 @@ fn non_structure_error_skips_slow_path() {
     );
     assert_eq!(stats.fallbacks.load(Ordering::Relaxed), 0);
     assert_eq!(stats.parse_errors.load(Ordering::Relaxed), 1);
+    assert_eq!(errs, 1);
     assert!(out.is_empty());
 }
 

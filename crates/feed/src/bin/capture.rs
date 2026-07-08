@@ -97,8 +97,9 @@ fn rest_plan(venue: Venue, metas: &[&InstrumentMeta]) -> RestPlan {
         url,
     };
     match venue {
-        // depth?limit=1000 costs 250 of the 6000/min weight budget; 1.5 s
-        // spacing keeps even a reconnect storm far under it.
+        // depth?limit=1000 costs weight 50 (the 501-1000 limit tier; 250
+        // is the 1001-5000 tier) of the 6000/min budget; 1.5 s spacing
+        // keeps even a reconnect storm far under it.
         Venue::Binance => RestPlan {
             targets: metas
                 .iter()

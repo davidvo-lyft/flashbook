@@ -390,6 +390,29 @@ fn multi_entry_book_update_preserves_order() {
     assert_eq!(out[4].aux, 222);
 }
 
+/// Legal-JSON whitespace after `"price":` / `"qty":` must not defeat the
+/// slow path's number-quoting pre-pass: a reformatted frame parses via
+/// parse_slow identically to its compact form. (The fast path's exact
+/// byte-literal matching rejects the spaced form by design; it falls back
+/// to the slow path in production.)
+#[test]
+fn slow_path_tolerates_whitespace_after_price_qty_keys() {
+    let compact = r#"{"channel":"book","type":"update","data":[{"symbol":"ETH/USD","bids":[{"price":1774.13,"qty":2.0}],"asks":[{"price":1774.14,"qty":2.00130641}],"checksum":3356266482,"timestamp":"2026-07-07T23:00:03.977459Z"}]}"#;
+    let spaced = r#"{"channel":"book","type":"update","data":[{"symbol":"ETH/USD","bids":[{"price": 1774.13,"qty":	2.0}],"asks":[{"price":  1774.14,"qty":
+2.00130641}],"checksum":3356266482,"timestamp":"2026-07-07T23:00:03.977459Z"}]}"#;
+    let (sig_c, out_c) = parse_both(compact);
+    let (sig_s, out_s) = parse_slow(spaced);
+    assert_eq!(sig_c, sig_s);
+    assert_eq!(out_c, out_s, "spaced book update must parse identically");
+
+    let compact = r#"{"channel":"trade","type":"update","data":[{"symbol":"ETH/USD","side":"buy","price":1774.14,"qty":0.00147959,"ord_type":"limit","trade_id":64175815,"timestamp":"2026-07-07T23:00:04.585581Z"}]}"#;
+    let spaced = r#"{"channel":"trade","type":"update","data":[{"symbol":"ETH/USD","side":"buy","price": 1774.14,"qty": 0.00147959,"ord_type":"limit","trade_id":64175815,"timestamp":"2026-07-07T23:00:04.585581Z"}]}"#;
+    let (sig_c, out_c) = parse_both(compact);
+    let (sig_s, out_s) = parse_slow(spaced);
+    assert_eq!(sig_c, sig_s);
+    assert_eq!(out_c, out_s, "spaced trade must parse identically");
+}
+
 // ---------------------------------------------------------------------------
 // 5. Malformed input: correct errors, no panics, no partial events.
 // ---------------------------------------------------------------------------
@@ -515,6 +538,12 @@ fn ws_url_and_subscribe_messages() {
     assert_eq!(trade["params"]["channel"], "trade");
     assert_eq!(trade["params"]["symbol"], book["params"]["symbol"]);
     assert!(trade["params"].get("depth").is_none());
+    // Matches the capture configuration: no historical-trade snapshot.
+    assert_eq!(trade["params"]["snapshot"], false);
+    assert!(
+        book["params"].get("snapshot").is_none(),
+        "book subscription unchanged"
+    );
 }
 
 #[test]

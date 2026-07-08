@@ -26,6 +26,10 @@ pub enum Signal {
         /// Instrument that lost sync.
         instrument: u32,
     },
+    /// The venue advised this connection is going away (e.g. Binance
+    /// `serverShutdown`): the connection layer should proactively reconnect
+    /// instead of waiting for the server close frame.
+    Reconnect,
 }
 
 /// Parse failure. The connection layer's policy on `Structure` errors from

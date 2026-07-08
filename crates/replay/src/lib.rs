@@ -6,6 +6,8 @@
 //! layer (codecs -> events -> books, with checksum oracles and digest
 //! assertions) composes this with flashbook-feed codecs.
 
+pub mod run;
 pub mod source;
 
+pub use run::{ReplayError, ReplayOutcome, replay_books};
 pub use source::{MergeStats, MergedRecord, MergedStream, SegmentFile, discover, open_segment};

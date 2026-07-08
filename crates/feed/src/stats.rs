@@ -200,7 +200,8 @@ pub fn append_to_file(path: &Path, text: &str) -> std::io::Result<()> {
 
 /// Stats emitter task: every `period` (60 s in production) append one JSON
 /// line per venue plus a `"total"` line to `path`, and log a one-line human
-/// summary. Exits when `shutdown` flips to true.
+/// summary. Exits when `shutdown` flips to true, after one final emission
+/// so even runs shorter than `period` leave stats lines behind.
 pub async fn run_stats_emitter(
     entries: Vec<EmitterEntry>,
     path: PathBuf,
@@ -214,15 +215,16 @@ pub async fn run_stats_emitter(
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     tick.tick().await; // the first tick fires immediately; skip it
     loop {
-        tokio::select! {
-            _ = tick.tick() => {}
+        let last = tokio::select! {
+            _ = tick.tick() => false,
             _ = shutdown.changed() => {
                 if *shutdown.borrow() {
-                    return;
+                    true // emit one final batch below, then exit
+                } else {
+                    continue;
                 }
-                continue;
             }
-        }
+        };
         let rss_mb = rss_kb(pid).unwrap_or(0) / 1024;
         rss_max_mb = rss_max_mb.max(rss_mb);
         let uptime_s = start.elapsed().as_secs();
@@ -246,5 +248,8 @@ pub async fn run_stats_emitter(
             uptime_s,
             "soak stats"
         );
+        if last {
+            return;
+        }
     }
 }
