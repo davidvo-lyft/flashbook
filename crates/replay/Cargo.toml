@@ -10,6 +10,7 @@ crc32fast = { workspace = true }
 flashbook-feed = { workspace = true }
 flashbook-lob = { workspace = true }
 flashbook-proto = { workspace = true }
+flashbook-store = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 zstd = { workspace = true }

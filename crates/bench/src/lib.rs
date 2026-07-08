@@ -14,6 +14,8 @@
 //!   overwritten silently — re-runs get fresh timestamped names unless the
 //!   caller explicitly fixes the name.
 
+#[cfg(feature = "compare")]
+pub mod compare;
 pub mod loadgen;
 pub mod percentile;
 pub mod results;

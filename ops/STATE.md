@@ -38,9 +38,18 @@ Last updated: 2026-07-07 ~22:45 UTC (session start)
 - [ ] Phase 6: optimize loop; ATTACKS.md last; ops/DONE.md
 
 ## Running processes (check on resume!)
-- (none yet) — when soak starts: PID in ops/soak/capture.pid, logs in ops/soak/,
-  stats in ops/soak/stats.jsonl, raw segments in data/raw/<venue>/.
-  Capture runs under `caffeinate -is` + nohup so it survives session restarts.
+- SOAK RUNNING since 2026-07-08 ~04:02 UTC: capture pid in ops/soak/capture.pid
+  (started as 3702), watchdog in ops/soak/watchdog.pid (3731), caffeinate -is -w
+  tied to capture. Stats: ops/soak/stats.jsonl (per-minute). Raw segments:
+  data/raw/<venue>/ (256MiB/15min rotation, zstd compaction). Restarts logged
+  to ops/soak/restarts.log (none = zero-crash gate intact).
+  DO NOT restart casually; every restart is honestly counted in the soak report.
+  Health check: `bash ops/soak-status.sh`. Expected rate ~750 msg/s aggregate
+  (smoke-measured), 5M msgs in <2h, ~65M/24h, ~19GB/day raw before compression.
+- Smoke evidence: ops/soak/smoke-stats.jsonl + data/smoke/ (3-min run:
+  138,964 msgs, 0 gaps/reconnects/fallbacks/parse errors, RSS 31MB).
+  replay-verify on smoke: 103,590 Kraken CRCs OK, 0 mismatches, two replays
+  byte-identical (event digest c779d2fd661b982f).
 
 ## Resume instructions (if this session/context is lost)
 1. Read ops/GOAL.md, this file, ops/LOG.md, DECISIONS.md.

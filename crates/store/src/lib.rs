@@ -8,4 +8,6 @@
 //! queries) build on these two.
 
 pub mod block;
+pub mod pit;
+pub mod segment;
 pub mod varint;

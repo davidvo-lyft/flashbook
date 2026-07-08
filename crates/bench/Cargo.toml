@@ -4,11 +4,27 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# The DuckDB/SQLite head-to-head harness. Off by default: the bundled
+# engines add ~10 min of cold compile that CI and dev loops don't need;
+# bench/run-all.sh builds with --features compare (D-012).
+compare = ["dep:duckdb", "dep:rusqlite"]
+# dhat heap profiling for the allocations/msg measurement (3a).
+alloc-profile = ["dep:dhat"]
+
 [dependencies]
 anyhow = { workspace = true }
+dhat = { workspace = true, optional = true }
+duckdb = { workspace = true, optional = true }
+flashbook-bus = { workspace = true }
+flashbook-feed = { workspace = true }
+flashbook-lob = { workspace = true }
 flashbook-proto = { workspace = true }
+flashbook-replay = { workspace = true }
+flashbook-store = { workspace = true }
 hdrhistogram = { workspace = true }
 rand = { workspace = true }
+rusqlite = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
