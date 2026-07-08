@@ -30,6 +30,9 @@ use crate::source::{MergedStream, SourceError};
 pub struct ReplayOutcome {
     /// Raw records consumed.
     pub records: u64,
+    /// Sum of raw record payload bytes (the "raw JSON" baseline for
+    /// compression ratios).
+    pub raw_payload_bytes: u64,
     /// WS text records parsed.
     pub ws_frames: u64,
     /// REST snapshot records applied.
@@ -119,6 +122,7 @@ pub fn replay_books<B: L2Book>(
 
     while let Some(rec) = stream.next()? {
         out.records += 1;
+        out.raw_payload_bytes += rec.payload.len() as u64;
         if out.first_mono_ns == 0 {
             out.first_mono_ns = rec.recv_mono_ns;
         }

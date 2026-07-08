@@ -159,3 +159,26 @@ embeds host, config, n, warmup; files are written atomically and REFUSE
 silent overwrite. BENCHMARKS.md is generated from result files only.
 Alternative rejected: quoting criterion summaries by hand into markdown
 (that's how numbers drift from evidence).
+
+## D-012 (2026-07-08) — DuckDB/SQLite live behind the bench `compare` feature
+
+The head-to-head harness (goal 3c) bundles DuckDB and SQLite via their
+`bundled` crate features for hermetic, version-pinned comparisons — but the
+bundled DuckDB build costs ~10 minutes cold. Gating them behind
+`flashbook-bench`'s non-default `compare` feature keeps `cargo test`/CI/dev
+loops fast; `bench/run-all.sh` builds with `--features compare`.
+Alternatives rejected: system-installed engines via CLI (version drift,
+process-spawn overhead pollutes latency comparisons, no duckdb CLI on this
+machine); making them default deps (every CI run pays 10 minutes for
+binaries the tests never exercise).
+
+## D-013 (2026-07-08) — Dashboard data path: exported replay dataset, not a live tunnel
+
+No Vercel/tunnel/VPS credentials exist on this machine (scouted 2026-07-07),
+so the deployed dashboard consumes a committed, exported replay dataset
+(book timeline + soak stats + benchmark table generated from the captured
+corpus by an exporter binary) served statically/serverlessly — exactly the
+goal's sanctioned fallback, stated honestly in the README. The engine and
+read API run locally against the same data. Alternatives rejected:
+tunneling localhost (no ngrok/cloudflared auth; fragile evidence), fake
+"live" websockets replaying canned data while claiming liveness (dishonest).

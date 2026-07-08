@@ -26,3 +26,28 @@
 - (parallel) Writing crates/lob core inline: two L2 representations
   (BTreeMap vs contiguous ladder with best-at-end layout) + reference-model
   and cross-impl property tests, digest for replay determinism.
+
+## 2026-07-08
+
+- ~02:00-03:30Z While Phase-1 agents built: wrote inline the store format
+  layer (varint/delta/DoD + CRC'd blocks), replay segment merge, bus seqlock
+  broadcast ring, bench honesty machinery (nearest-rank percentiles,
+  host-stamped result files). Phase-1 workflow landed: 4 codecs/capture
+  builders + 4 docs-verifiers; committed at 156 tests green.
+- ~03:45Z Fix workflow applied all verification findings (2 coinbase majors:
+  advance-only trade baseline + NeedResync on gaps; 4 conn majors: connect
+  timeout, health-gated backoff, Retry-After on 429/418, snapshot-parse
+  retry; ~10 minors). Replay driver written inline. 170 tests green.
+- ~03:57Z Live smoke (3 min, 3 venues): 138,964 msgs @ ~755/s, 0 gaps,
+  0 reconnects, 0 fallbacks, 0 parse errors, RSS 31 MB, clean SIGTERM.
+- ~04:01Z replay-verify on the smoke capture: 103,590/103,590 Kraken CRCs
+  verified, 0 mismatches, two replays byte-identical. The pipeline is
+  provably correct on live data.
+- ~04:02Z **SOAK STARTED** (capture pid 3702, watchdog 3731, caffeinate).
+  8-min health: 417k msgs (~870/s), 0 gaps/errors, RSS 35 MB.
+- ~04:10Z CI triage: fmt+clippy+test job green; bench-smoke failed on a
+  clobbered exec bit (git add -A re-staged 644) — now invoked via bash.
+- ~04:15Z Phase-3 workflow launched: store segment writer/reader -> PIT
+  index -> ingest + DuckDB/SQLite/Parquet compare harness (sequential
+  chain), bench-lob + bench-feed bins in parallel. DuckDB/SQLite pinned
+  behind the bench "compare" feature to keep CI fast (D-012 pending).
