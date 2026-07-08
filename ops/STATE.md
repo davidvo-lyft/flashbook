@@ -23,6 +23,22 @@ Last updated: 2026-07-07 ~22:45 UTC (session start)
 - [ ] G5: README + DECISIONS.md + ATTACKS.md (25 Q&A) + LIMITATIONS.md
 - [ ] DONE: ops/DONE.md checklist with evidence links
 
+## Where things stand (updated 2026-07-08 ~13:15Z)
+- Soak: 9.2h in, 27.8M msgs, 0 gaps, 1 reconnect (recovered), 0 restarts.
+  Ends >= 2026-07-09 04:02Z. Mid-soak ingest: 111.2M events, 20.69M Kraken
+  CRCs verified 0 mismatches, store 1.02GB @ 9.17 B/event (6.8x vs raw).
+- Dashboard LIVE: https://davidvo-lyft.github.io/flashbook/ (200, real data).
+  Vercel deploy pending interactive auth (D-013 fallback documented).
+- CI green. 256 tests. All bench bins built (official runs pending quiesced
+  machine after soak).
+- ENDGAME CHECKLIST (after soak >= 24h): stop-soak -> final ingest ->
+  replay-verify --twice --fail-on-crc-mismatch -> bench/run-all.sh (official,
+  machine quiesced) -> write bench/render.sh + BENCHMARKS.md from results ->
+  gen-soak-report.py w/ --replay-json --ingest-json -> ops/soak-report.md ->
+  re-export dashboard (bench.json now available) + redeploy -> README rewrite
+  (architecture + headline numbers) -> LIMITATIONS final -> ATTACKS.md (25
+  Q&A, file:line) -> ops/DONE.md evidence index -> final CI-green commit.
+
 ## Phase status
 - [x] Phase 0: scout + rustup install + repo skeleton + public repo + CI
 - [~] Phase 1: proto DONE (28 tests); feed API pinned; real fixtures captured;
