@@ -13,6 +13,9 @@ const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "export",
+  // Emit each route as `route/index.html` so dumb static hosts
+  // (GitHub Pages, `python -m http.server`) serve deep links directly.
+  trailingSlash: true,
   ...(basePath ? { basePath, assetPrefix: basePath } : {}),
   images: { unoptimized: true },
 };

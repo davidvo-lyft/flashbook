@@ -11,7 +11,7 @@ Regenerate (from the repo root; ingest a capture first if needed):
 cargo run --release -p flashbook-replay --bin ingest -- \
      --data data/smoke --out data/tmp/smoke.fbstore --zstd 3
 cargo run --release -p flashbook-replay --bin export-dashboard -- \
-     --store data/tmp/smoke.fbstore --stats ops/soak/smoke-stats.jsonl \
+     --store data/tmp/smoke.fbstore --stats ops/soak/stats.jsonl \
      --bench-results bench/results --out apps/dashboard/public/data \
      --window-mins 60 --step-s 2 --book-instruments 1,6,11
 ```
