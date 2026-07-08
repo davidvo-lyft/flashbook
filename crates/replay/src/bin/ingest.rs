@@ -63,18 +63,26 @@ struct IngestStats {
     span_s: f64,
 }
 
+/// Round a derived float to 6 decimals for serialization. The raw integer
+/// counters are the evidence; derived ratios are display-grade, and fixing
+/// their precision makes the JSON stable across platforms (CI caught a
+/// 1-ULP divergence on x86_64 in the full-precision form).
+fn round6(v: f64) -> f64 {
+    (v * 1e6).round() / 1e6
+}
+
 impl IngestStats {
     /// Stats as the (sorted-key, hence deterministic) JSON line.
     fn to_json(&self) -> serde_json::Value {
         let bytes_per_event = if self.events == 0 {
             0.0
         } else {
-            self.store_bytes as f64 / self.events as f64
+            round6(self.store_bytes as f64 / self.events as f64)
         };
         let ratio_vs_raw_json = if self.store_bytes == 0 {
             0.0
         } else {
-            self.raw_payload_bytes as f64 / self.store_bytes as f64
+            round6(self.raw_payload_bytes as f64 / self.store_bytes as f64)
         };
         serde_json::json!({
             "events": self.events,
@@ -86,7 +94,7 @@ impl IngestStats {
             "checksums_ok": self.checksums_ok,
             "checksum_mismatches": self.checksum_mismatches,
             "parse_errors": self.parse_errors,
-            "span_s": self.span_s,
+            "span_s": round6(self.span_s),
         })
     }
 }
