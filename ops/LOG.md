@@ -51,3 +51,16 @@
   index -> ingest + DuckDB/SQLite/Parquet compare harness (sequential
   chain), bench-lob + bench-feed bins in parallel. DuckDB/SQLite pinned
   behind the bench "compare" feature to keep CI fast (D-012 pending).
+- ~05:30-13:15Z Phase-4/5 landed (bus/e2e benches, exporter, dashboard);
+  CI fixed (exec bit, 1-ULP float, internal npm registry in lockfile);
+  dashboard LIVE on Pages with mid-soak data (111M events, 20.7M CRCs OK).
+- ~16:15Z SOAK CONTINUITY EVENT (honestly logged): the machine slept 4x
+  between 15:14-16:00Z (~46 min of capture holes; laptop on battery, lid
+  events — outside software control; caffeinate -s only holds on AC).
+  Capture process NEVER died (pid 3702 throughout, 0 restarts); wake
+  recoveries show as reconnects (1 -> 5) with fresh snapshots, gaps=0.
+  Consequence: the 24h CONTINUOUS window restarts after the last hole
+  (~15:56Z + 4.1min). Longest clean stretch so far: 04:02Z -> 15:14Z
+  (11.2h, zero everything). Total capture keeps accumulating regardless;
+  the soak report's cadence-hole detector will carry the full truth.
+  Notified the user to keep the laptop on AC.
