@@ -172,6 +172,17 @@ process-spawn overhead pollutes latency comparisons, no duckdb CLI on this
 machine); making them default deps (every CI run pays 10 minutes for
 binaries the tests never exercise).
 
+## D-013 (2026-07-08) — Dashboard data path: exported replay dataset, not a live tunnel
+
+No Vercel/tunnel/VPS credentials exist on this machine (scouted 2026-07-07),
+so the deployed dashboard consumes a committed, exported replay dataset
+(book timeline + soak stats + benchmark table generated from the captured
+corpus by an exporter binary) served statically/serverlessly — exactly the
+goal's sanctioned fallback, stated honestly in the README. The engine and
+read API run locally against the same data. Alternatives rejected:
+tunneling localhost (no ngrok/cloudflared auth; fragile evidence), fake
+"live" websockets replaying canned data while claiming liveness (dishonest).
+
 ## D-014 (2026-07-09) — BTreeBook ships as the default book (the benchmark decided)
 
 The official 3b run over the full 226M-event corpus: BTreeBook 24.27M
@@ -187,13 +198,33 @@ cross-implementation property-test partner. The published early smoke
 signal (10x) overstated the full-corpus gap (2.4x) — both numbers are in
 the result files.
 
-## D-013 (2026-07-08) — Dashboard data path: exported replay dataset, not a live tunnel
+## D-015 (2026-07-09) — Block format v2: column-offset table for pruned scans
 
-No Vercel/tunnel/VPS credentials exist on this machine (scouted 2026-07-07),
-so the deployed dashboard consumes a committed, exported replay dataset
-(book timeline + soak stats + benchmark table generated from the captured
-corpus by an exporter binary) served statically/serverlessly — exactly the
-goal's sanctioned fallback, stated honestly in the README. The engine and
-read API run locally against the same data. Alternatives rejected:
-tunneling localhost (no ngrok/cloudflared auth; fragile evidence), fake
-"live" websockets replaying canned data while claiming liveness (dishonest).
+The official 3c run exposed a 42x full-scan loss to DuckDB whose root cause
+was format, not fold: v1 block bodies are concatenated varint streams with
+no offsets, so any scan decodes all 11 columns and materializes whole
+events. v2 appends 11 u32 per-column byte lengths to the block header
+(~44 B on ~75 KB blocks); readers accept v1 and v2 forever (v1 pinned by
+committed binary fixtures), writers emit v2, and `scan_columns` decodes
+only selected columns (the compare fold now touches 4). Per-block zstd is
+not seekable, so pruning saves decode work but not decompression — the gap
+narrows, it does not close (informal same-fold measurements: 1.7-2.75x;
+official re-measurement deferred to AC power for comparability, see
+LIMITATIONS). Alternatives rejected: per-column compression frames
+(seekable, but a bigger format break for a scan path that is explicitly
+not this store's primary job); leaving it (the loss was published, but a
+44-byte header fix that halves scan cost is not gold-plating).
+
+## D-016 (2026-07-09) — REST cross-validation for the venues without checksums
+
+Kraken's CRC32 is the only venue-provided oracle. For Coinbase/Binance,
+replay now scores every periodic REST snapshot against the live
+reconstructed book BEFORE applying it: top-10 overlap as exact
+(price, qty) pairs and as price-only. It is a statistical cross-check, not
+an oracle — the REST body is fetched while the WS stream keeps mutating
+the book, so quantity churn makes high-but-not-100% the healthy reading.
+Full-corpus result: 556/561 snapshots scored, price overlap p50 95% /
+p90 100% (exact p50 40%). Deterministic (pure function of stream content;
+digests unchanged). Also added: a startup tripwire fetching Kraken
+AssetPairs and warning on precision drift against the pinned table
+(non-fatal; the CRC oracle remains the hard check).

@@ -29,17 +29,21 @@ measured consequences; ATTACKS.md carries the adversarial Q&A.
   venues' own batching (Coinbase level2_batch ~50 ms; Binance depth diffs
   100 ms cadence) — the venue-path numbers in 3e are context, not claims.
 - L2 aggregated books (price levels), not L3 order-by-order.
-- The Kraken CRC32 oracle is the only venue-provided book checksum;
-  Coinbase/Binance book correctness rests on the documented sync protocols,
-  differential fast/slow parser equality, deterministic replay, and
-  periodic REST cross-snapshots — strong evidence, weaker than a per-update
-  venue checksum. Kraken's gap counter is 0 *by design* (integrity there is
+- The Kraken CRC32 oracle is the only venue-provided book checksum.
+  Coinbase/Binance books are cross-validated statistically instead
+  (D-016): every periodic REST snapshot is scored against the live
+  reconstructed book before being applied (full corpus: 556/561 scored,
+  price-level top-10 overlap p50 95% / p90 100%; exact price+qty overlap
+  is lower by construction — quantities churn during the HTTP fetch).
+  Strong evidence, still weaker than a per-update venue checksum.
+  Kraken's gap counter is 0 *by design* (integrity there is
   checksum-based, not sequence-based).
 - Global fixed-point scale 1e-8: instruments with finer precision (some
   meme pairs) are rejected at subscribe time, not supported (D-003).
-- Kraken pair precisions for the CRC are a pinned snapshot (2026-07-07);
-  a venue precision change would surface as oracle mismatches (the
-  tripwire), not silent corruption.
+- Kraken pair precisions for the CRC are compiled-in values verified
+  against `/0/public/AssetPairs` at capture startup (non-fatal warn on
+  drift, D-016); a drift that slipped through would surface as oracle
+  mismatches, not silent corruption.
 
 ## Soak reality (see ops/soak-report.md for the generated truth)
 - The 24h soak ran on the dev laptop. The capture **process** ran >24h with
@@ -59,12 +63,13 @@ measured consequences; ATTACKS.md carries the adversarial Q&A.
   BENCHMARKS.md, the table says so.
 - Replay determinism digests use FNV-1a (fast, non-cryptographic): they
   detect divergence, not adversaries. The byte-identity claim for store
-  files is checked with SHA-256 in tests.
-- The bench e2e harness's live mode uses a minimal WebSocket client over a
-  TLS child process (`openssl s_client`) because the bench crate carries no
-  TLS/WS dependency; this transport sits **before** the measured t0 and
-  does not affect the published decomposition. The production capture path
-  uses tokio-tungstenite/rustls throughout.
+  files is checked by whole-file equality in tests.
+- The store's analytical full-scan still trails DuckDB even after the v2
+  pruned-column format (D-015): per-block zstd is not seekable, so pruning
+  saves decode work but not decompression, and the fold is scalar where
+  DuckDB vectorizes. The published numbers say so. (The v2 official
+  re-measurement is gated on AC power for comparability with the other
+  sections; the current BENCHMARKS store table is the v1-format run.)
 - The deployed dashboard serves an exported replay dataset (D-013), not a
   live feed; the README states this. It is evidence, not a product.
 

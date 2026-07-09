@@ -1,6 +1,6 @@
 # Soak report — generated, not hand-written
 
-Generated 2026-07-09 06:27:30Z by ops/gen-soak-report.py from ops/soak/stats.jsonl (committed telemetry).
+Generated 2026-07-09 14:19:13Z by ops/gen-soak-report.py from ops/soak/stats.jsonl (committed telemetry).
 
 ## Goal gates (G2)
 
@@ -50,7 +50,7 @@ Generated 2026-07-09 06:27:30Z by ops/gen-soak-report.py from ops/soak/stats.jso
 ## Tick-store ingest of the corpus
 
 - events in store: 226,404,844 (gate: >= 5,000,000 -> MET)
-- store bytes: 2,061,064,364 (9.10 B/event; 6.84x smaller than raw JSON payloads)
+- store bytes: 2,062,280,436 (9.11 B/event; 6.83x smaller than raw JSON payloads)
 
 ## Method notes
 
