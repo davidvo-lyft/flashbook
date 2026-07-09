@@ -2,48 +2,55 @@
 # One-command reproduction of every number in BENCHMARKS.md.
 #
 # Usage: ./bench/run-all.sh [--quick]
-#   --quick: reduced sample counts (CI smoke / sanity; NOT publishable)
+#   --quick: reduced sample counts (sanity/smoke; NOT publishable)
 #
-# Results land in bench/results/*.json (the committed raw evidence).
-# BENCHMARKS.md is regenerated from those files by bench/render.sh —
-# numbers are never hand-typed.
+# Prerequisites:
+#   - a captured raw corpus under data/raw (the soak; see ops/)
+#   - an ingested store:  cargo run --release -p flashbook-replay --bin ingest \
+#       -- --data data/raw --out data/store/full.fbstore --zstd 3 --kraken-depth 100
+#   - an otherwise idle machine on AC power (methodology in BENCHMARKS.md)
 #
-# Sections (filled in as the harnesses land; each guards on its inputs):
-#   feed   - JSON->Event normalization throughput, fast vs serde_json baseline (3a)
-#   lob    - replay throughput + top-of-book latency, BTree vs Ladder (3b)
-#   store  - write/scan/PIT vs DuckDB/SQLite/Parquet on identical data (3c)
-#   bus    - ring vs crossbeam vs tokio::broadcast fan-out curves (3d)
-#   e2e    - exchange->subscriber decomposition w/ RTT subtraction (3e)
+# Results land in bench/results/*.json (committed raw evidence). Regenerate
+# the tables afterwards:  bash bench/render.sh --write
+#
+# The live e2e section connects to the three venues; it degrades gracefully
+# per venue if the network disagrees.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
-QUICK=""
-[[ "${1:-}" == "--quick" ]] && QUICK="--quick"
+STORE="${STORE:-data/store/full.fbstore}"
+DATA="${DATA:-data/raw}"
+RESULTS="${RESULTS:-bench/results}"
+QUICK=()
+[[ "${1:-}" == "--quick" ]] && QUICK=(--quick)
 
-echo "== flashbook bench: building release =="
+if [[ ! -f "$STORE" ]]; then
+  echo "store not found: $STORE (run the ingest first; see header)" >&2
+  exit 2
+fi
+
+echo "== build (release, with the compare feature) =="
 "$CARGO" build --workspace --release
+"$CARGO" build --release -p flashbook-bench --features compare --bin bench-store
 
-run_if_present() {
-  local bin="$1"; shift
-  if "$CARGO" run --release -p flashbook-bench --bin "$bin" -- --help >/dev/null 2>&1; then
-    echo "== $bin $* =="
-    "$CARGO" run --release -p flashbook-bench --bin "$bin" -- "$@"
-  else
-    echo "== $bin: not built yet, skipping =="
-  fi
-}
+run() { echo; echo "== $* =="; "$@"; }
 
-# Environment notes recorded by each harness itself (HostInfo). Manual
-# isolation steps for publishable runs (documented in BENCHMARKS.md):
-# close foreground apps, AC power, no thermal throttle (cold start).
+run ./target/release/bench-feed --data "$DATA" --results-dir "$RESULTS" --overwrite "${QUICK[@]}"
+run ./target/release/bench-lob --data "$DATA" --kraken-depth 100 --results-dir "$RESULTS" --overwrite "${QUICK[@]}"
+run ./target/release/bench-store --store "$STORE" --results-dir "$RESULTS" --overwrite "${QUICK[@]}"
+run ./target/release/bench-bus --results-dir "$RESULTS" --overwrite "${QUICK[@]}"
+run ./target/release/bench-e2e net --results-dir "$RESULTS" --overwrite "${QUICK[@]}"
+run ./target/release/bench-e2e live --results-dir "$RESULTS" --overwrite "${QUICK[@]}"
 
-run_if_present bench-feed  $QUICK
-run_if_present bench-lob   $QUICK
-run_if_present bench-store $QUICK
-run_if_present bench-bus   $QUICK
-run_if_present bench-e2e   $QUICK
+echo
+echo "== allocation profile (rebuilds bench-feed with dhat; run LAST) =="
+"$CARGO" build --release -p flashbook-bench --features alloc-profile --bin bench-feed
+./target/release/bench-feed --alloc-check --data "$DATA" --results-dir "$RESULTS" --overwrite
+# restore the plain binary so a later throughput run isn't dhat-instrumented
+"$CARGO" build --release -p flashbook-bench --bin bench-feed
 
+echo
 echo "== results =="
-ls -la bench/results/*.json 2>/dev/null || echo "(no results yet)"
-echo "Now regenerate the tables: bash bench/render.sh"
+ls -la "$RESULTS"/*.json
+echo "Now: bash bench/render.sh --write   (regenerates BENCHMARKS.md)"
