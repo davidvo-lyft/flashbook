@@ -59,18 +59,19 @@ All sections generated from committed raw result files; wins AND losses:
   caught two real bugs during official runs (i64 sum overflow; DuckDB
   integer `/` = float division) — commits reference both.
 
-## G4 — deployed: **MET via the goal's own fallback clause; Vercel pending one login**
-- Dashboard: **LIVE and 200** at https://davidvo-lyft.github.io/flashbook/
-  rendering real data (full-corpus export: books with time scrubber,
-  ingest health incl. gap/restart counters, venue-path latency, the
-  headline benchmark table — 207 rows from bench/results/).
-- The goal names Vercel; no Vercel credentials exist on this machine and
-  `vercel login` is interactive. Per the goal's explicit fallback ("if
-  none, run the engine locally for the soak and deploy the dashboard
-  against a recorded-replay API — say so honestly"), the engine ran
-  locally, the dashboard serves the exported replay dataset (D-013), and
-  the README says so. Vercel completion is one command once the user logs
-  in: `cd apps/dashboard && vercel --prod` (vercel.json committed).
+## G4 — deployed: **MET — dashboard live on Vercel (and Pages), 200 with real data**
+- **Vercel (the goal's named host): LIVE and 200** at
+  https://dashboard-kasamixs-projects.vercel.app — production deployment,
+  deployment protection disabled, serving the full-corpus dataset
+  (verified: /data/meta.json returns the 226,404,844-event corpus).
+  Deployed 2026-07-09 after the user completed the interactive
+  `vercel login`.
+- Mirror: https://davidvo-lyft.github.io/flashbook/ (GitHub Pages, same
+  exported dataset; deploy workflow in-repo).
+- Data path is the exported replay dataset (D-013 — stated honestly in
+  the README); the engine ran locally for the soak per the goal's
+  fallback clause. An engine+read-API host (VPS) remains the planned
+  upgrade alongside the continuous-24h re-run.
 
 ## G5 — docs: **MET**
 - README.md: architecture diagram, headline numbers (each traceable),

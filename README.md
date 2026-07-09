@@ -11,8 +11,9 @@ the generated soak report; the tables are rendered by a script that refuses
 hand-typed numbers, and the losses (there are some) are published next to the
 wins.
 
-- **Live dashboard:** <https://davidvo-lyft.github.io/flashbook/> (serves an
-  exported replay dataset, not a live feed — see [Deployment](#deployment-status-honest)).
+- **Live dashboard (Vercel):** <https://dashboard-kasamixs-projects.vercel.app>
+  (mirror: <https://davidvo-lyft.github.io/flashbook/>) — serves an exported
+  replay dataset, not a live feed; see [Deployment](#deployment-status-honest).
 - **Repo:** <https://github.com/davidvo-lyft/flashbook> — CI green: `fmt`,
   `clippy -D warnings`, 256 tests, bench smoke.
 
