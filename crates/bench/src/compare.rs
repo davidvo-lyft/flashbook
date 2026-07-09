@@ -56,10 +56,16 @@ pub const SCHEMA_SQL: &str = "CREATE TABLE events(\
      price BIGINT, qty BIGINT, aux BIGINT, \
      instrument INTEGER, kind TINYINT, venue INTEGER, flags INTEGER)";
 
-/// The full-scan aggregate, identical text on both engines. `CAST` keeps
-/// DuckDB's HUGEINT `sum()` in BIGINT like ours/SQLite (overflow fails the
-/// query instead of silently widening).
-const SCAN_SQL: &str = "SELECT instrument, count(*), CAST(sum(qty) AS BIGINT), \
+/// The full-scan aggregate, identical text on both engines.
+///
+/// `sum(qty)` over the full corpus exceeds i64 (observed: 1.06e19 across
+/// 226M events), which DuckDB refuses to down-cast and SQLite raises on.
+/// The sum is therefore split into two never-overflowing BIGINT sums
+/// (hi = qty / 2^31, lo = qty % 2^31; qty is non-negative and division
+/// truncates toward zero identically on both engines and in Rust) and
+/// recombined as i128 on the Rust side — exact on every backend.
+const SCAN_SQL: &str = "SELECT instrument, count(*), \
+     sum(qty / 2147483648), sum(qty % 2147483648), \
      min(price), max(price), max(recv_mono) \
      FROM events GROUP BY instrument ORDER BY instrument";
 
@@ -70,8 +76,10 @@ pub struct ScanRow {
     pub instrument: u32,
     /// Event count.
     pub count: u64,
-    /// Sum of `qty` mantissas.
-    pub sum_qty: i64,
+    /// Sum of `qty` mantissas (exceeds i64 on the full corpus; serialized
+    /// as a string for JSON portability).
+    #[serde(serialize_with = "ser_i128")]
+    pub sum_qty: i128,
     /// Minimum `price` mantissa (0 events with meaningless price included —
     /// identically on every backend).
     pub min_price: i64,
@@ -272,7 +280,7 @@ pub fn full_scan_ours(reader: &StoreReader) -> Result<(f64, Vec<ScanRow>)> {
             max_mono: 0,
         });
         r.count += 1;
-        r.sum_qty += e.qty;
+        r.sum_qty += i128::from(e.qty);
         r.min_price = r.min_price.min(e.price);
         r.max_price = r.max_price.max(e.price);
         r.max_mono = r.max_mono.max(e.recv_mono_ns);
@@ -282,15 +290,21 @@ pub fn full_scan_ours(reader: &StoreReader) -> Result<(f64, Vec<ScanRow>)> {
     Ok((t0.elapsed().as_secs_f64(), rows))
 }
 
-/// One raw aggregate row into a [`ScanRow`] (shared by both SQL backends).
-fn scan_row_from_sql(t: (i32, i64, i64, i64, i64, i64)) -> Result<ScanRow> {
+/// Serialize an i128 as a decimal string (JSON number portability).
+fn ser_i128<S: serde::Serializer>(v: &i128, s: S) -> std::result::Result<S::Ok, S::Error> {
+    s.serialize_str(&v.to_string())
+}
+
+/// One raw aggregate row into a [`ScanRow`] (shared by both SQL backends):
+/// recombines the hi/lo split sums exactly.
+fn scan_row_from_sql(t: (i32, i64, i64, i64, i64, i64, i64)) -> Result<ScanRow> {
     Ok(ScanRow {
         instrument: u32::try_from(t.0).context("negative instrument")?,
         count: u64::try_from(t.1).context("negative count")?,
-        sum_qty: t.2,
-        min_price: t.3,
-        max_price: t.4,
-        max_mono: u64::try_from(t.5).context("negative max recv_mono")?,
+        sum_qty: i128::from(t.2) * 2_147_483_648i128 + i128::from(t.3),
+        min_price: t.4,
+        max_price: t.5,
+        max_mono: u64::try_from(t.6).context("negative max recv_mono")?,
     })
 }
 
@@ -298,7 +312,7 @@ fn scan_row_from_sql(t: (i32, i64, i64, i64, i64, i64)) -> Result<ScanRow> {
 pub fn full_scan_duckdb(conn: &duckdb::Connection) -> Result<(f64, Vec<ScanRow>)> {
     let t0 = Instant::now();
     let mut stmt = conn.prepare(SCAN_SQL).context("duckdb scan prepare")?;
-    let raw: Vec<(i32, i64, i64, i64, i64, i64)> = stmt
+    let raw: Vec<(i32, i64, i64, i64, i64, i64, i64)> = stmt
         .query_map([], |row| {
             Ok((
                 row.get(0)?,
@@ -307,6 +321,7 @@ pub fn full_scan_duckdb(conn: &duckdb::Connection) -> Result<(f64, Vec<ScanRow>)
                 row.get(3)?,
                 row.get(4)?,
                 row.get(5)?,
+                row.get(6)?,
             ))
         })
         .context("duckdb scan query")?
@@ -324,7 +339,7 @@ pub fn full_scan_duckdb(conn: &duckdb::Connection) -> Result<(f64, Vec<ScanRow>)
 pub fn full_scan_sqlite(conn: &rusqlite::Connection) -> Result<(f64, Vec<ScanRow>)> {
     let t0 = Instant::now();
     let mut stmt = conn.prepare(SCAN_SQL).context("sqlite scan prepare")?;
-    let raw: Vec<(i32, i64, i64, i64, i64, i64)> = stmt
+    let raw: Vec<(i32, i64, i64, i64, i64, i64, i64)> = stmt
         .query_map([], |row| {
             Ok((
                 row.get(0)?,
@@ -333,6 +348,7 @@ pub fn full_scan_sqlite(conn: &rusqlite::Connection) -> Result<(f64, Vec<ScanRow
                 row.get(3)?,
                 row.get(4)?,
                 row.get(5)?,
+                row.get(6)?,
             ))
         })
         .context("sqlite scan query")?
@@ -558,11 +574,17 @@ mod tests {
     }
 
     #[test]
-    fn scan_row_from_sql_rejects_negatives() {
-        assert!(scan_row_from_sql((1, 2, 3, 4, 5, 6)).is_ok());
-        assert!(scan_row_from_sql((-1, 2, 3, 4, 5, 6)).is_err());
-        assert!(scan_row_from_sql((1, -2, 3, 4, 5, 6)).is_err());
-        assert!(scan_row_from_sql((1, 2, 3, 4, 5, -6)).is_err());
+    fn scan_row_from_sql_rejects_negatives_and_recombines_split_sum() {
+        let ok = scan_row_from_sql((1, 2, 3, 4, 5, 6, 7)).unwrap();
+        // hi/lo recombination: 3 * 2^31 + 4
+        assert_eq!(ok.sum_qty, 3i128 * 2_147_483_648 + 4);
+        assert!(scan_row_from_sql((-1, 2, 3, 4, 5, 6, 7)).is_err());
+        assert!(scan_row_from_sql((1, -2, 3, 4, 5, 6, 7)).is_err());
+        assert!(scan_row_from_sql((1, 2, 3, 4, 5, 6, -7)).is_err());
+        // a sum that would overflow i64 recombines exactly in i128
+        let big = scan_row_from_sql((1, 2, i64::MAX / 4, 100, 0, 0, 1)).unwrap();
+        assert_eq!(big.sum_qty, i128::from(i64::MAX / 4) * 2_147_483_648 + 100);
+        assert!(big.sum_qty > i128::from(i64::MAX));
     }
 
     #[test]
