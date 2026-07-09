@@ -87,3 +87,9 @@
   dashboard 200 with live official data.
 - Remaining (environment-blocked): continuous-24h re-run + engine deploy
   on a user-provided VPS; Vercel deploy pending interactive login.
+- 2026-07-09 ~16:25Z AC returned: deferred officials re-run on comparable
+  conditions (sqlite scan back at ~40s baseline = clean run). v2 store
+  scan 7.13s (-28% vs v1's 9.87s), parity clean, DuckDB still ~38x
+  (published). e2e via production transport: steady p50 2.25us / p99
+  23.4us. BENCHMARKS re-rendered; dashboard re-exported (v2 corpus) and
+  redeployed to Vercel + Pages; CI green. Phase-6 loop iteration closed.

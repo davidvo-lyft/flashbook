@@ -85,15 +85,21 @@ All sections generated from committed raw result files; wins AND losses:
 - ops/soak-report.md: generated evidence for G2.
 
 ## Phase-6 optimization loop — status
-One full official pass completed. The dominant identified bottleneck is
-the store's full-scan loss to DuckDB (42×; full-event decode + per-event
-fold vs pruned vectorized columns). No optimization iteration was applied
-after the official runs: the two remaining unmet clauses (continuous-24h,
-Vercel) are environment-blocked, not performance-blocked, and no code
-change since the official pass has moved any published p99 (loop exit
-condition per the goal). The scan-gap fix (per-column pruned decode) is
-scoped in ATTACKS.md as the first follow-up; the loop resumes on the VPS
-alongside the continuous-24h re-run.
+One full iteration completed exactly as the goal prescribes: the official
+pass identified the dominant bottleneck (store full-scan, 42× loss to
+DuckDB: v1 blocks force decoding all 11 columns), the fix shipped (block
+format v2 with a column-offset table + pruned scans, D-015), and the
+re-measurement on comparable AC-power conditions moved the metric well
+past the 5% loop threshold: 9.87 s -> 7.13 s (-28%), parity clean. The
+remaining ~38× gap is architectural (per-block zstd is not seekable;
+scalar fold vs vectorized hash aggregation) — next levers (seekable
+compression framing, batched fold) are documented in D-015/ATTACKS.md
+and deliberately deferred: the store's primary jobs (write path, size,
+PIT anchoring correctness) are where it wins, and the loss is published.
+Additional hardening from the same loop: e2e bench transport now the
+production tokio-tungstenite stack (steady added p50 2.25 µs / p99
+23.4 µs official), REST cross-validation for non-Kraken books (D-016),
+and a Kraken precision-drift tripwire.
 
 ## Evidence index (paths)
 - bench/results/*.json — raw benchmark evidence (committed)
