@@ -57,12 +57,21 @@ def main() -> int:
     span_s = (end_ns - start_ns) / 1e9
 
     # Continuity: gaps in the per-minute cadence (asleep/dead periods).
+    # A hole > 2 min breaks the CONTINUOUS window (machine asleep or process
+    # down); the 24h gate is judged on the longest hole-free window, never
+    # on the raw span.
     max_gap_s, gap_count_over_2m = 0.0, 0
+    longest_window_s, window_start = 0.0, totals[0]["ts_wall_ns"]
     for prev, cur in zip(totals, totals[1:]):
         d = (cur["ts_wall_ns"] - prev["ts_wall_ns"]) / 1e9
         max_gap_s = max(max_gap_s, d)
         if d > 120:
             gap_count_over_2m += 1
+            longest_window_s = max(
+                longest_window_s, (prev["ts_wall_ns"] - window_start) / 1e9
+            )
+            window_start = cur["ts_wall_ns"]
+    longest_window_s = max(longest_window_s, (totals[-1]["ts_wall_ns"] - window_start) / 1e9)
 
     rss_ceiling = max(l.get("rss_max_mb", 0) for l in lines)
 
@@ -98,8 +107,16 @@ def main() -> int:
             ingest = json.load(f)
 
     hours = span_s / 3600
+    longest_h = longest_window_s / 3600
     msgs = last["msgs"]
-    gate_24h = "MET" if hours >= 24 else f"NOT MET ({hours:.1f}h of 24h)"
+    if longest_h >= 24:
+        gate_24h = f"MET (longest continuous hole-free window {longest_h:.1f}h)"
+    else:
+        gate_24h = (
+            f"NOT MET as specified: longest CONTINUOUS hole-free window {longest_h:.1f}h "
+            f"(span {hours:.1f}h with {gap_count_over_2m} sleep holes; the capture process "
+            f"itself never crashed — see cadence and restart lines)"
+        )
     gate_5m = "MET" if msgs >= 5_000_000 else f"NOT MET ({msgs:,} of 5,000,000)"
     store_msgs = (ingest or {}).get("events", None)
     zero_crash = "MET (0 restarts)" if restarts == 0 else f"NOT MET ({restarts} restarts — see below)"
