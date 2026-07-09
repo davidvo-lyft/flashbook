@@ -172,6 +172,21 @@ process-spawn overhead pollutes latency comparisons, no duckdb CLI on this
 machine); making them default deps (every CI run pays 10 minutes for
 binaries the tests never exercise).
 
+## D-014 (2026-07-09) — BTreeBook ships as the default book (the benchmark decided)
+
+The official 3b run over the full 226M-event corpus: BTreeBook 24.27M
+events/s vs LadderBook 10.06M (2.4x), top-of-book p50 41ns vs 42ns but
+ladder's p90+ collapses (2.4µs vs 42ns) on deep-book updates — real feeds
+update deep levels constantly, and a contiguous vec pays O(n) memmove
+there while the ladder's best-at-end trick only helps near the top.
+Production bins (replay-verify, ingest, export-dashboard) switched to
+BTreeBook; digests are representation-independent (verified: identical
+smoke digests before/after the swap), so no stored artifact changed
+meaning. LadderBook stays in-tree as the benchmarked alternative and the
+cross-implementation property-test partner. The published early smoke
+signal (10x) overstated the full-corpus gap (2.4x) — both numbers are in
+the result files.
+
 ## D-013 (2026-07-08) — Dashboard data path: exported replay dataset, not a live tunnel
 
 No Vercel/tunnel/VPS credentials exist on this machine (scouted 2026-07-07),

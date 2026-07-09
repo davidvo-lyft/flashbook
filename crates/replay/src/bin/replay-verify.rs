@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use flashbook_lob::LadderBook;
+use flashbook_lob::BTreeBook;
 use flashbook_proto::Registry;
 use flashbook_replay::replay_books;
 
@@ -53,10 +53,10 @@ fn main() -> ExitCode {
 
     let registry = Registry::builtin();
     let run = || {
-        replay_books::<LadderBook>(
+        replay_books::<BTreeBook>(
             &data,
             &registry,
-            |d| d.map_or_else(LadderBook::new, LadderBook::with_max_depth),
+            |d| d.map_or_else(BTreeBook::new, BTreeBook::with_max_depth),
             Some(kraken_depth),
             |_| {},
         )

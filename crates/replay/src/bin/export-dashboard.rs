@@ -10,7 +10,7 @@
 //! - `books.json`: top-of-book + top-10 depth time series over the last
 //!   `--window-mins` of the store's wall-clock span, sampled every
 //!   `--step-s` seconds via the PIT snapshot index folded into a
-//!   [`LadderBook`].
+//!   [`BTreeBook`].
 //! - `lag.json`: per-minute soak counter deltas, venue path latency
 //!   percentiles (recv_wall - venue_ts), and the queue honesty note.
 //! - `bench.json`: headline rows extracted from benchmark result files
@@ -31,7 +31,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use flashbook_lob::{L2Book, LadderBook};
+use flashbook_lob::{BTreeBook, L2Book};
 use flashbook_proto::event::{Event, Side, Venue};
 use flashbook_proto::fixed::fixed_to_f64;
 use flashbook_proto::instrument::Registry;
@@ -452,7 +452,7 @@ fn bench_rows(file_name: &str, root: &Value) -> Vec<Value> {
 /// A step is emitted only when the book is synced with both sides present
 /// — steps before the first complete snapshot are skipped per contract.
 struct BookSampler {
-    book: LadderBook,
+    book: BTreeBook,
     step_ns: u64,
     next_wall: u64,
     end_wall: u64,
@@ -463,7 +463,7 @@ struct BookSampler {
 impl BookSampler {
     fn new(depth_cap: Option<usize>, start_wall: u64, end_wall: u64, step_ns: u64) -> Self {
         Self {
-            book: depth_cap.map_or_else(LadderBook::new, LadderBook::with_max_depth),
+            book: depth_cap.map_or_else(BTreeBook::new, BTreeBook::with_max_depth),
             step_ns,
             next_wall: start_wall.div_ceil(step_ns) * step_ns,
             end_wall,
@@ -499,7 +499,7 @@ impl BookSampler {
             return;
         };
         let (bid, ask) = (fixed_to_f64(bp), fixed_to_f64(ap));
-        let ladder = |book: &LadderBook, side: Side, scratch: &mut Vec<(i64, i64)>| -> Value {
+        let ladder = |book: &BTreeBook, side: Side, scratch: &mut Vec<(i64, i64)>| -> Value {
             book.top_n_into(side, BOOK_DEPTH, scratch);
             Value::Array(
                 scratch

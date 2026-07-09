@@ -26,7 +26,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use flashbook_lob::LadderBook;
+use flashbook_lob::BTreeBook;
 use flashbook_proto::Registry;
 use flashbook_replay::replay_books;
 use flashbook_store::pit::SnapshotIndex;
@@ -164,9 +164,9 @@ fn stats_path(out: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// LadderBook constructor for `replay_books`.
-fn make_ladder(depth: Option<usize>) -> LadderBook {
-    depth.map_or_else(LadderBook::new, LadderBook::with_max_depth)
+/// Book constructor for `replay_books` (BTreeBook: the measured winner, D-014).
+fn make_book(depth: Option<usize>) -> BTreeBook {
+    depth.map_or_else(BTreeBook::new, BTreeBook::with_max_depth)
 }
 
 /// Run one ingest: replay `cfg.data`, write the segment, seal, build and
@@ -196,10 +196,10 @@ fn run(cfg: &Config) -> Result<IngestStats, String> {
         .map_err(|e| format!("create store {}: {e}", cfg.out.display()))?;
 
     let mut write_err: Option<SegmentError> = None;
-    let outcome = replay_books::<LadderBook>(
+    let outcome = replay_books::<BTreeBook>(
         &cfg.data,
         &registry,
-        make_ladder,
+        make_book,
         Some(cfg.kraken_depth),
         |ev| {
             if write_err.is_none()
