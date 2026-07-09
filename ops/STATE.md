@@ -23,7 +23,7 @@ Last updated: 2026-07-07 ~22:45 UTC (session start)
 - [ ] G5: README + DECISIONS.md + ATTACKS.md (25 Q&A) + LIMITATIONS.md
 - [ ] DONE: ops/DONE.md checklist with evidence links
 
-## Where things stand (updated 2026-07-08 ~13:15Z)
+## Where things stand (updated 2026-07-09 ~06:50Z) — ENDGAME COMPLETE
 - Soak: 9.2h in, 27.8M msgs, 0 gaps, 1 reconnect (recovered), 0 restarts.
   Ends >= 2026-07-09 04:02Z. Mid-soak ingest: 111.2M events, 20.69M Kraken
   CRCs verified 0 mismatches, store 1.02GB @ 9.17 B/event (6.8x vs raw).

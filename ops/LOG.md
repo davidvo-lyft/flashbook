@@ -64,3 +64,26 @@
   (11.2h, zero everything). Total capture keeps accumulating regardless;
   the soak report's cadence-hole detector will carry the full truth.
   Notified the user to keep the laptop on AC.
+
+## 2026-07-09 (endgame, laptop 8h window)
+
+- 04:5xZ Soak ended cleanly (55,819,963 msgs, 25.05h span, 0 crashes,
+  0 restarts, 18 sleep holes honestly logged; longest continuous 11.2h).
+- 05:0xZ Full ingest: 226,404,844 events @ 9.10 B/event (6.84x vs raw).
+- 05:1xZ replay-verify --twice over all 55.8M records: byte-identical,
+  41,692,848 CRCs 0 mismatches.
+- 05:10-06:25Z OFFICIAL benchmark battery (quiesced M5 Max). Two real bugs
+  caught BY the parity harness mid-battery and fixed: sum(qty) i64
+  overflow (would wrap silently in release); DuckDB integer '/' is float
+  division (rounded split-sums) -> bit-op split + i128 recombine.
+- 06:26Z BENCHMARKS.md rendered from 12 result files (renderer hardened
+  against non-ResultFile evidence). Soak-report gate logic fixed to judge
+  the 24h clause on the longest hole-free window (11.2h -> NOT MET as
+  specified; everything else MET).
+- 06:3xZ BTreeBook shipped as default (D-014; digests identical across the
+  swap). Dashboard re-exported from the full corpus (207 bench rows).
+- 06:44Z README rewrite + ATTACKS.md (25 Q&A, file:line verified) landed;
+  ops/DONE.md scorecard; final gate 256 tests/fmt/clippy clean; CI GREEN;
+  dashboard 200 with live official data.
+- Remaining (environment-blocked): continuous-24h re-run + engine deploy
+  on a user-provided VPS; Vercel deploy pending interactive login.
