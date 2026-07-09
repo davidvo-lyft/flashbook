@@ -60,12 +60,16 @@ pub const SCHEMA_SQL: &str = "CREATE TABLE events(\
 ///
 /// `sum(qty)` over the full corpus exceeds i64 (observed: 1.06e19 across
 /// 226M events), which DuckDB refuses to down-cast and SQLite raises on.
-/// The sum is therefore split into two never-overflowing BIGINT sums
-/// (hi = qty / 2^31, lo = qty % 2^31; qty is non-negative and division
-/// truncates toward zero identically on both engines and in Rust) and
+/// The sum is therefore split into two never-overflowing BIGINT sums and
 /// recombined as i128 on the Rust side — exact on every backend.
+///
+/// The split uses BIT ops, not `/` and `%`: DuckDB's `/` on integers is
+/// FLOAT division (Postgres-style), which silently rounded the hi terms
+/// (caught by the parity assertion on the first full-corpus run). `>>`
+/// and `&` are integer ops with identical semantics on DuckDB, SQLite and
+/// Rust for the non-negative `qty` domain.
 const SCAN_SQL: &str = "SELECT instrument, count(*), \
-     sum(qty / 2147483648), sum(qty % 2147483648), \
+     sum(qty >> 31), sum(qty & 2147483647), \
      min(price), max(price), max(recv_mono) \
      FROM events GROUP BY instrument ORDER BY instrument";
 
