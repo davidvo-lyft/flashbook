@@ -21,7 +21,7 @@ use flashbook_feed::SymbolTable;
 use flashbook_feed::binance::BinanceCodec;
 use flashbook_feed::coinbase::CoinbaseCodec;
 use flashbook_feed::conn::{RestPlan, RestTarget, VenueConfig, run_venue};
-use flashbook_feed::kraken::KrakenCodec;
+use flashbook_feed::kraken::{KrakenCodec, pair_decimals, verify_pair_decimals};
 use flashbook_feed::sink::{DEFAULT_MAX_AGE, DEFAULT_MAX_BYTES, RotatingRawLog, meta_json};
 use flashbook_feed::stats::{EmitterEntry, VenueStats, append_to_file, run_stats_emitter};
 use flashbook_proto::instrument::InstrumentMeta;
@@ -189,6 +189,51 @@ async fn run(args: Args) -> anyhow::Result<()> {
         .user_agent("flashbook-capture/0.1")
         .timeout(Duration::from_secs(30))
         .build()?;
+
+    // Kraken precision-drift tripwire (LIMITATIONS: the pinned pair_decimals
+    // table is a snapshot): compare it against the venue's live AssetPairs
+    // before subscribing. Always non-fatal — on drift we WARN and continue
+    // (the CRC oracle downstream is the hard tripwire); on network/parse
+    // failure we debug-log and continue.
+    if args.venues.contains(&Venue::Kraken) {
+        let pinned: Vec<(String, (u32, u32))> = registry
+            .for_venue(Venue::Kraken)
+            .filter(|m| {
+                args.symbols
+                    .iter()
+                    .any(|s| m.canonical.split('-').next() == Some(s.as_str()))
+            })
+            .filter_map(|m| pair_decimals(&m.venue_symbol).map(|d| (m.venue_symbol.clone(), d)))
+            .collect();
+        match tokio::time::timeout(
+            Duration::from_secs(10),
+            verify_pair_decimals(&http, &pinned),
+        )
+        .await
+        {
+            Ok(Ok(drifts)) if drifts.is_empty() => {
+                tracing::info!(
+                    pairs = pinned.len(),
+                    "kraken pair precisions: pinned table matches venue"
+                );
+            }
+            Ok(Ok(drifts)) => {
+                for d in &drifts {
+                    tracing::warn!(
+                        drift = %d,
+                        "kraken pair precision DRIFT: pinned table is stale; expect CRC \
+                         oracle mismatches on this pair until the table is re-pinned"
+                    );
+                }
+            }
+            Ok(Err(e)) => {
+                tracing::debug!(error = %e, "kraken pair precision check unavailable; continuing");
+            }
+            Err(_) => {
+                tracing::debug!("kraken pair precision check timed out (10s); continuing");
+            }
+        }
+    }
 
     let mut entries = Vec::new();
     let mut handles = Vec::new();

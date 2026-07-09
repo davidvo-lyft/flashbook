@@ -1,12 +1,13 @@
 //! Integration tests for the segment file layer: seal/recovery round trips,
-//! arbitrary-truncation recovery, footer corruption fallback, and the
-//! directory-driven mono range scan vs. a naive filter.
+//! arbitrary-truncation recovery, footer corruption fallback, the
+//! directory-driven mono range scan vs. a naive filter, and the
+//! column-pruned scan vs. the full event scan.
 
 use std::fs::File;
 use std::path::Path;
 
 use flashbook_proto::event::Event;
-use flashbook_store::block::MAX_BLOCK_EVENTS;
+use flashbook_store::block::{ColumnSelection, MAX_BLOCK_EVENTS};
 use flashbook_store::segment::{
     DIR_ENTRY_LEN, FILE_HEADER_LEN, FOOTER_TRAILER_LEN, SegmentError, StoreReader, StoreWriter,
     recover_truncate,
@@ -540,6 +541,53 @@ fn decode_block_index_out_of_range() {
         r.decode_block(1, &mut Vec::new()),
         Err(SegmentError::BadBlockIndex { idx: 1, blocks: 1 })
     ));
+    assert!(matches!(
+        r.decode_block_columns(1, ColumnSelection::ALL, &mut Default::default()),
+        Err(SegmentError::BadBlockIndex { idx: 1, blocks: 1 })
+    ));
+}
+
+#[test]
+fn scan_columns_matches_scan() {
+    // Deterministic multi-block equivalence: the pruned scan must deliver,
+    // block by block, exactly the projections the event scan delivers —
+    // zstd and raw stores alike.
+    let d = tmp();
+    let evs = mk_events(1000, 59); // 256/block -> 3 full + 1 partial
+    for (name, zstd) in [("z.fbstore", Some(3)), ("r.fbstore", None)] {
+        let p = d.path().join(name);
+        write_all(&p, b"", 256, zstd, &evs, true);
+        let r = StoreReader::open(&p).unwrap();
+        let sel = ColumnSelection {
+            recv_mono: true,
+            price: true,
+            qty: true,
+            instrument: true,
+            ..ColumnSelection::NONE
+        };
+        let (mut mono, mut price, mut qty, mut inst) = (vec![], vec![], vec![], vec![]);
+        let mut per_block = Vec::new();
+        let visited = r
+            .scan_columns(sel, |cols, n| {
+                per_block.push(n);
+                assert!(cols.recv_wall.is_none() && cols.kind.is_none());
+                mono.extend_from_slice(cols.recv_mono.as_deref().unwrap());
+                price.extend_from_slice(cols.price.as_deref().unwrap());
+                qty.extend_from_slice(cols.qty.as_deref().unwrap());
+                inst.extend_from_slice(cols.instrument.as_deref().unwrap());
+            })
+            .unwrap();
+        assert_eq!(visited, 1000, "{name}");
+        assert_eq!(per_block, [256, 256, 256, 232], "one sink call per block");
+        let want_mono: Vec<u64> = evs.iter().map(|e| e.recv_mono_ns).collect();
+        let want_price: Vec<i64> = evs.iter().map(|e| e.price).collect();
+        let want_qty: Vec<i64> = evs.iter().map(|e| e.qty).collect();
+        let want_inst: Vec<u32> = evs.iter().map(|e| e.instrument).collect();
+        assert_eq!(mono, want_mono, "{name}");
+        assert_eq!(price, want_price, "{name}");
+        assert_eq!(qty, want_qty, "{name}");
+        assert_eq!(inst, want_inst, "{name}");
+    }
 }
 
 proptest! {
@@ -649,6 +697,73 @@ proptest! {
         prop_assert_eq!(rs.verify().unwrap(), n as u64);
         prop_assert_eq!(ru.verify().unwrap(), n as u64);
     }
+
+    /// scan_columns == scan for arbitrary events, block sizes, zstd modes,
+    /// seal states and column selections: every selected column is the
+    /// exact per-field projection of the event scan, in the same order.
+    #[test]
+    fn scan_columns_equals_scan_prop(
+        seed in any::<u64>(),
+        n in 1usize..300,
+        be in 1usize..64,
+        zstd in any::<bool>(),
+        sealed in any::<bool>(),
+        mask in any::<u16>(),
+    ) {
+        let d = tmp();
+        let evs = mk_events(n, seed);
+        let p = d.path().join("sc.fbstore");
+        write_all(&p, b"", be, if zstd { Some(1) } else { None }, &evs, sealed);
+        let r = StoreReader::open(&p).unwrap();
+        let events = read_all(&r);
+        prop_assert_eq!(&events[..], &evs[..]);
+        let sel = ColumnSelection {
+            recv_mono: mask & 1 != 0,
+            recv_wall: mask & 2 != 0,
+            venue_ts: mask & 4 != 0,
+            venue_seq: mask & 8 != 0,
+            price: mask & 16 != 0,
+            qty: mask & 32 != 0,
+            aux: mask & 64 != 0,
+            instrument: mask & 128 != 0,
+            kind: mask & 256 != 0,
+            venue: mask & 512 != 0,
+            flags: mask & 1024 != 0,
+        };
+        let mut at = 0usize;
+        let mut blocks = 0usize;
+        let visited = r.scan_columns(sel, |cols, bn| {
+            let want = &events[at..at + bn];
+            macro_rules! check {
+                ($field:ident, $ev:ident -> $get:expr) => {
+                    match (&cols.$field, sel.$field) {
+                        (Some(got), true) => {
+                            let w: Vec<_> = want.iter().map(|$ev| $get).collect();
+                            assert_eq!(got[..], w[..], stringify!($field));
+                        }
+                        (None, false) => {}
+                        _ => panic!("{}: Some/selected mismatch", stringify!($field)),
+                    }
+                };
+            }
+            check!(recv_mono, e -> e.recv_mono_ns);
+            check!(recv_wall, e -> e.recv_wall_ns);
+            check!(venue_ts, e -> e.venue_ts_ns);
+            check!(venue_seq, e -> e.venue_seq);
+            check!(price, e -> e.price);
+            check!(qty, e -> e.qty);
+            check!(aux, e -> e.aux);
+            check!(instrument, e -> e.instrument);
+            check!(kind, e -> e.kind);
+            check!(venue, e -> e.venue);
+            check!(flags, e -> e.flags);
+            at += bn;
+            blocks += 1;
+        }).unwrap();
+        prop_assert_eq!(visited as usize, n);
+        prop_assert_eq!(at, n);
+        prop_assert_eq!(blocks, r.n_blocks());
+    }
 }
 
 /// Informal smoke at soak-capture scale (~139k events, like data/smoke).
@@ -687,4 +802,73 @@ fn smoke_synthetic_scale() {
         n as f64 / write_dt.as_secs_f64() / 1e6,
         n as f64 / read_dt.as_secs_f64() / 1e6,
     );
+}
+
+/// Informal smoke: the 4-column aggregate via scan (full Event decode)
+/// vs scan_columns (pruned decode) on zstd and raw stores, plus the v2
+/// header overhead. Ignored by default; run with `--ignored --nocapture`
+/// for rough numbers (unoptimized build, busy machine — NOT official).
+#[test]
+#[ignore = "informal smoke numbers only; run with --ignored --nocapture"]
+fn smoke_scan_columns_vs_scan() {
+    let d = tmp();
+    let n = 138_964; // matches the smoke capture's message count
+    let evs = mk_events(n, 2026);
+    let sel = ColumnSelection {
+        recv_mono: true,
+        price: true,
+        qty: true,
+        instrument: true,
+        ..ColumnSelection::NONE
+    };
+
+    for (name, zstd) in [("zstd3", Some(3)), ("raw", None)] {
+        let p = d.path().join(format!("smoke-{name}.fbstore"));
+        let mut w = StoreWriter::create(&p, b"{}", 8192, zstd).unwrap();
+        for e in &evs {
+            w.append(e).unwrap();
+        }
+        let bytes = w.seal().unwrap();
+        let r = StoreReader::open(&p).unwrap();
+
+        // Same fold both ways; times full Event decode vs pruned decode.
+        let fold = |acc: (u64, i128, i64, u64), mono: u64, price: i64, qty: i64, inst: u32| {
+            (
+                acc.0 ^ u64::from(inst).rotate_left(11) ^ mono,
+                acc.1 + i128::from(qty),
+                acc.2.max(price),
+                acc.3.max(mono),
+            )
+        };
+        for _ in 0..2 {
+            // warmup then measured
+            let t0 = std::time::Instant::now();
+            let mut a = (0u64, 0i128, i64::MIN, 0u64);
+            r.scan(|e| a = fold(a, e.recv_mono_ns, e.price, e.qty, e.instrument))
+                .unwrap();
+            let scan_dt = t0.elapsed();
+
+            let t1 = std::time::Instant::now();
+            let mut b = (0u64, 0i128, i64::MIN, 0u64);
+            r.scan_columns(sel, |cols, bn| {
+                let mono = cols.recv_mono.as_deref().unwrap();
+                let price = cols.price.as_deref().unwrap();
+                let qty = cols.qty.as_deref().unwrap();
+                let inst = cols.instrument.as_deref().unwrap();
+                for i in 0..bn {
+                    b = fold(b, mono[i], price[i], qty[i], inst[i]);
+                }
+            })
+            .unwrap();
+            let cols_dt = t1.elapsed();
+            assert_eq!(a, b, "identical fold results on both paths");
+            println!(
+                "smoke {name}: {n} events, {bytes} B; scan {scan_dt:?} ({:.1} Mevt/s) vs \
+                 scan_columns {cols_dt:?} ({:.1} Mevt/s) — {:.2}x",
+                n as f64 / scan_dt.as_secs_f64() / 1e6,
+                n as f64 / cols_dt.as_secs_f64() / 1e6,
+                scan_dt.as_secs_f64() / cols_dt.as_secs_f64(),
+            );
+        }
+    }
 }

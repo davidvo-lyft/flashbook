@@ -86,6 +86,16 @@ fn main() -> ExitCode {
             "checksums_ok": a.checksums_ok,
             "checksum_mismatches": a.checksum_mismatches,
             "checksums_skipped": a.checksums_skipped,
+            // REST cross-validation (Coinbase/Binance): statistical check,
+            // not an oracle — REST bodies are timing-skewed vs the live
+            // book, so expect high-but-not-100% overlap when scored.
+            "crossval_snapshots": a.crossval_snapshots,
+            "crossval_scored": a.crossval_scored,
+            "crossval_top10_overlap_p50": a.crossval_top10_overlap_p50,
+            "crossval_top10_overlap_p90": a.crossval_top10_overlap_p90,
+            "crossval_worst_overlap": a.crossval_worst_overlap,
+            "crossval_price_overlap_p50": a.crossval_price_overlap_p50,
+            "crossval_price_overlap_p90": a.crossval_price_overlap_p90,
             "event_stream_digest": format!("{:016x}", a.event_stream_digest),
             "books_digest": format!("{:016x}", a.books_digest),
             "span_mono_s": (a.last_mono_ns.saturating_sub(a.first_mono_ns)) / 1_000_000_000,

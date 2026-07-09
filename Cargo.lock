@@ -897,6 +897,7 @@ dependencies = [
  "flashbook-proto",
  "flashbook-replay",
  "flashbook-store",
+ "futures-util",
  "hdrhistogram",
  "rand 0.9.4",
  "rusqlite",
@@ -904,6 +905,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]

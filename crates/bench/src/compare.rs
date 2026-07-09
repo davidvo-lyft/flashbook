@@ -47,6 +47,7 @@ use std::time::Instant;
 use anyhow::{Context, Result, bail};
 use flashbook_lob::{L2Book, LadderBook};
 use flashbook_proto::event::{Event, EventKind};
+use flashbook_store::block::ColumnSelection;
 use flashbook_store::pit::{SnapshotIndex, pit_scan};
 use flashbook_store::segment::StoreReader;
 
@@ -270,24 +271,46 @@ pub fn write_parquet_via_duckdb(conn: &duckdb::Connection, path: &Path) -> Resul
 }
 
 /// The full-scan aggregate, ours: one hand-written fold over
-/// [`StoreReader::scan`]. Returns (seconds, rows sorted by instrument).
+/// [`StoreReader::scan_columns`], pruned to the 4 columns the aggregate
+/// reads (instrument, qty, price, recv_mono) and folded straight off the
+/// column vectors — no per-event `Event` materialization. On block-format
+/// v2 stores the other 7 column streams are never decoded; v1 stores fall
+/// back to decode-all inside the store layer, same results. The fold is
+/// arithmetic-identical to the previous `scan`-based one (count/i128
+/// sum/min/max are order-insensitive), so rows stay exactly equal across
+/// backends. Returns (seconds, rows sorted by instrument).
 pub fn full_scan_ours(reader: &StoreReader) -> Result<(f64, Vec<ScanRow>)> {
     let t0 = Instant::now();
     let mut acc: HashMap<u32, ScanRow> = HashMap::new();
-    reader.scan(|e| {
-        let r = acc.entry(e.instrument).or_insert(ScanRow {
-            instrument: e.instrument,
-            count: 0,
-            sum_qty: 0,
-            min_price: i64::MAX,
-            max_price: i64::MIN,
-            max_mono: 0,
-        });
-        r.count += 1;
-        r.sum_qty += i128::from(e.qty);
-        r.min_price = r.min_price.min(e.price);
-        r.max_price = r.max_price.max(e.price);
-        r.max_mono = r.max_mono.max(e.recv_mono_ns);
+    let sel = ColumnSelection {
+        recv_mono: true,
+        price: true,
+        qty: true,
+        instrument: true,
+        ..ColumnSelection::NONE
+    };
+    reader.scan_columns(sel, |cols, n| {
+        // Selected columns are guaranteed Some with exactly n values.
+        let inst = cols.instrument.as_deref().expect("instrument selected");
+        let qty = cols.qty.as_deref().expect("qty selected");
+        let price = cols.price.as_deref().expect("price selected");
+        let mono = cols.recv_mono.as_deref().expect("recv_mono selected");
+        debug_assert!(inst.len() == n && qty.len() == n && price.len() == n && mono.len() == n);
+        for i in 0..n {
+            let r = acc.entry(inst[i]).or_insert(ScanRow {
+                instrument: inst[i],
+                count: 0,
+                sum_qty: 0,
+                min_price: i64::MAX,
+                max_price: i64::MIN,
+                max_mono: 0,
+            });
+            r.count += 1;
+            r.sum_qty += i128::from(qty[i]);
+            r.min_price = r.min_price.min(price[i]);
+            r.max_price = r.max_price.max(price[i]);
+            r.max_mono = r.max_mono.max(mono[i]);
+        }
     })?;
     let mut rows: Vec<ScanRow> = acc.into_values().collect();
     rows.sort_unstable_by_key(|r| r.instrument);

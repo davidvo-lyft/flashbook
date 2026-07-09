@@ -45,6 +45,119 @@ pub fn pair_decimals(venue_symbol: &str) -> Option<(u32, u32)> {
     })
 }
 
+/// Kraken REST endpoint the precision tripwire fetches (public, no auth).
+pub const ASSET_PAIRS_URL: &str = "https://api.kraken.com/0/public/AssetPairs";
+
+/// Map a WS v2 modern pair name to the v1 `wsname` used by the REST
+/// `AssetPairs` response. Kraken's REST layer still speaks the legacy
+/// currency codes for two of our bases: `BTC` is `XBT` and `DOGE` is `XDG`
+/// (e.g. v2 `BTC/USD` appears as `wsname` `XBT/USD`); every other code we
+/// subscribe to is identical on both sides.
+pub fn v1_wsname(v2_symbol: &str) -> String {
+    v2_symbol
+        .split('/')
+        .map(|code| match code {
+            "BTC" => "XBT",
+            "DOGE" => "XDG",
+            other => other,
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Compare the pinned [`pair_decimals`] snapshot against a raw
+/// `/0/public/AssetPairs` response body (the pure-logic half of
+/// [`verify_pair_decimals`], directly testable on fixture JSON).
+///
+/// `pinned` is `(v2 symbol, (pair_decimals, lot_decimals))` per subscribed
+/// pair; lookup into the response goes through [`v1_wsname`]. Returns one
+/// human-readable drift line per missing pair or changed precision — an
+/// empty vec means the pinned snapshot still matches the venue. `Err` means
+/// the response could not be interpreted at all (bad JSON, venue error,
+/// missing fields), which callers must treat as "check unavailable", never
+/// as drift.
+pub fn check_pair_decimals(
+    assetpairs_body: &str,
+    pinned: &[(String, (u32, u32))],
+) -> Result<Vec<String>, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(assetpairs_body).map_err(|e| format!("AssetPairs: bad JSON: {e}"))?;
+    if let Some(errs) = v.get("error").and_then(serde_json::Value::as_array)
+        && !errs.is_empty()
+    {
+        return Err(format!("AssetPairs: venue error: {errs:?}"));
+    }
+    let result = v
+        .get("result")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| "AssetPairs: missing result object".to_string())?;
+    let mut by_wsname = std::collections::HashMap::new();
+    for pair in result.values() {
+        // Entries without a wsname (if any) can't correspond to a WS pair.
+        let Some(wsname) = pair.get("wsname").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let pd = pair
+            .get("pair_decimals")
+            .and_then(serde_json::Value::as_u64);
+        let ld = pair.get("lot_decimals").and_then(serde_json::Value::as_u64);
+        if let (Some(pd), Some(ld)) = (pd, ld) {
+            by_wsname.insert(wsname.to_string(), (pd, ld));
+        }
+    }
+    let mut drifts = Vec::new();
+    for (symbol, (pin_pd, pin_ld)) in pinned {
+        let wsname = v1_wsname(symbol);
+        match by_wsname.get(&wsname) {
+            None => drifts.push(format!(
+                "{symbol} (wsname {wsname}): missing from AssetPairs response"
+            )),
+            Some(&(pd, ld)) => {
+                if pd != u64::from(*pin_pd) {
+                    drifts.push(format!(
+                        "{symbol} (wsname {wsname}): pair_decimals pinned {pin_pd}, venue now {pd}"
+                    ));
+                }
+                if ld != u64::from(*pin_ld) {
+                    drifts.push(format!(
+                        "{symbol} (wsname {wsname}): lot_decimals pinned {pin_ld}, venue now {ld}"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(drifts)
+}
+
+/// Precision-drift tripwire: fetch [`ASSET_PAIRS_URL`] and compare the
+/// venue's current `pair_decimals`/`lot_decimals` against the pinned
+/// snapshot via [`check_pair_decimals`].
+///
+/// Returns drift descriptions (empty = pinned table matches the venue).
+/// This is an *early warning* only — the CRC oracle remains the hard
+/// tripwire: a real precision change also surfaces immediately as
+/// persistent checksum mismatches on the affected pair. Network or parse
+/// failure is an `Err` and must be non-fatal for callers.
+pub async fn verify_pair_decimals(
+    client: &reqwest::Client,
+    symbols: &[(String, (u32, u32))],
+) -> Result<Vec<String>, String> {
+    let resp = client
+        .get(ASSET_PAIRS_URL)
+        .send()
+        .await
+        .map_err(|e| format!("AssetPairs: fetch: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("AssetPairs: HTTP {status}"));
+    }
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("AssetPairs: read body: {e}"))?;
+    check_pair_decimals(&text, symbols)
+}
+
 /// Book depth we subscribe at. The checksum always covers only the top 10
 /// levels, but a deeper book survives longer between resyncs.
 const BOOK_DEPTH: u32 = 100;

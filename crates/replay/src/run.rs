@@ -1,7 +1,9 @@
 //! The replay driver: merged raw records -> venue codecs -> normalized
 //! events -> per-instrument books, with the Kraken CRC32 oracle verified
-//! inline and determinism digests over both the event stream and the final
-//! book states.
+//! inline, Coinbase/Binance books cross-validated against captured REST
+//! snapshot bodies (statistical, timing-skewed — see the `crossval_*`
+//! fields), and determinism digests over both the event stream and the
+//! final book states.
 //!
 //! Determinism contract: replaying the same segments twice yields identical
 //! `event_stream_digest` and `books_digest` (asserted by tests and by the
@@ -57,6 +59,31 @@ pub struct ReplayOutcome {
     pub checksum_mismatches: u64,
     /// Checksum events skipped because the book wasn't synced/complete.
     pub checksums_skipped: u64,
+    /// Coinbase/Binance REST snapshot records eligible for cross-validation
+    /// (Kraken has no REST path; its oracle is the per-message CRC32).
+    pub crossval_snapshots: u64,
+    /// Cross-validated snapshots actually scored: the live reconstructed
+    /// book was synced when the REST body arrived and the body parsed.
+    /// On-connect snapshots are *expected* to be skipped (they are what
+    /// syncs the book in the first place); only periodic refreshes land on
+    /// an already-synced book.
+    pub crossval_scored: u64,
+    /// Median exact top-10 overlap, integer percent 0-100. Per snapshot:
+    /// |intersection of (price, qty) pairs between live book top-10 and
+    /// REST body top-10| / 10, averaged over both sides. This is a
+    /// STATISTICAL cross-check, not an oracle: the REST body is fetched
+    /// over HTTP while the WS stream keeps mutating the book, so timing
+    /// skew makes high-but-not-100% overlap the expected healthy reading.
+    pub crossval_top10_overlap_p50: u64,
+    /// 90th percentile (ascending nearest-rank) of the exact overlap.
+    pub crossval_top10_overlap_p90: u64,
+    /// Minimum exact overlap over all scored snapshots (0 if none scored).
+    pub crossval_worst_overlap: u64,
+    /// Median price-only top-10 overlap (ignores qty), integer percent.
+    /// Less sensitive to in-flight qty churn than the exact metric.
+    pub crossval_price_overlap_p50: u64,
+    /// 90th percentile of the price-only overlap.
+    pub crossval_price_overlap_p90: u64,
     /// FNV-1a over every emitted event's 64 bytes, in order.
     pub event_stream_digest: u64,
     /// Combined digest over all final book states.
@@ -85,6 +112,89 @@ fn fnv1a(mut h: u64, bytes: &[u8]) -> u64 {
         h = h.wrapping_mul(FNV_PRIME);
     }
     h
+}
+
+/// Nearest-rank percentile (floor index) over an ascending-sorted slice;
+/// 0 when empty. Pure integer arithmetic — deterministic by construction.
+fn percentile(sorted: &[u64], pct: usize) -> u64 {
+    if sorted.is_empty() {
+        return 0;
+    }
+    sorted[(sorted.len() - 1) * pct / 100]
+}
+
+/// Fixed-point (price, qty) levels of one book side, best-first.
+type SideLevels = Vec<(i64, i64)>;
+
+/// Parse the top-10 (bids, asks) of a Coinbase or Binance REST book body
+/// into fixed-point (price, qty) pairs, best-first (both venues serialize
+/// levels best-first). Coinbase `/book?level=2` levels are
+/// `["price","size",num_orders]`, Binance `/depth` levels are
+/// `["price","qty"]`; both are consumed by reading the first two string
+/// elements, exactly the fields the codecs' `parse_rest_snapshot` uses.
+/// Cold path (runs a few times per capture-hour), so serde_json is fine.
+/// `None` = body not interpretable; callers skip scoring, never fail.
+fn parse_rest_top10(body: &[u8]) -> Option<(SideLevels, SideLevels)> {
+    fn side(v: &serde_json::Value, key: &str) -> Option<SideLevels> {
+        v.get(key)?
+            .as_array()?
+            .iter()
+            .take(10)
+            .map(|lvl| {
+                let lvl = lvl.as_array()?;
+                let p = flashbook_proto::parse_fixed(lvl.first()?.as_str()?.as_bytes()).ok()?;
+                let q = flashbook_proto::parse_fixed(lvl.get(1)?.as_str()?.as_bytes()).ok()?;
+                Some((p, q))
+            })
+            .collect()
+    }
+    let v: serde_json::Value = serde_json::from_slice(body).ok()?;
+    Some((side(&v, "bids")?, side(&v, "asks")?))
+}
+
+/// How many of the REST side's top-10 levels appear in the live top-10:
+/// as exact (price, qty) pairs, and as prices regardless of qty. Returned
+/// as `(exact, price_only)` raw counts (each 0..=10).
+fn side_overlap(live: &[(i64, i64)], rest: &[(i64, i64)]) -> (u64, u64) {
+    let mut exact = 0u64;
+    let mut price = 0u64;
+    for r in rest {
+        exact += u64::from(live.contains(r));
+        price += u64::from(live.iter().any(|l| l.0 == r.0));
+    }
+    (exact, price)
+}
+
+/// Score one Coinbase/Binance REST snapshot body against the live
+/// reconstructed book, **before** the snapshot is applied. Skipped (not
+/// scored) when the book is absent/unsynced or the body doesn't parse.
+/// Deterministic: a pure function of stream content and book state.
+fn score_crossval<B: L2Book>(
+    books: &BookSet<B>,
+    instrument: u32,
+    body: &[u8],
+    out: &mut ReplayOutcome,
+    exact_samples: &mut Vec<u64>,
+    price_samples: &mut Vec<u64>,
+) {
+    let Some(book) = books.get(instrument) else {
+        return;
+    };
+    if !book.is_synced() {
+        return;
+    }
+    let Some((rest_bids, rest_asks)) = parse_rest_top10(body) else {
+        return;
+    };
+    let (mut live_bids, mut live_asks) = (Vec::with_capacity(10), Vec::with_capacity(10));
+    book.top_n_into(flashbook_proto::event::Side::Bid, 10, &mut live_bids);
+    book.top_n_into(flashbook_proto::event::Side::Ask, 10, &mut live_asks);
+    let (be, bp) = side_overlap(&live_bids, &rest_bids);
+    let (ae, ap) = side_overlap(&live_asks, &rest_asks);
+    // Both sides fixed at /10 each -> combined percent = (count/20)*100.
+    out.crossval_scored += 1;
+    exact_samples.push((be + ae) * 5);
+    price_samples.push((bp + ap) * 5);
 }
 
 fn make_codec(venue: Venue, registry: &Registry) -> Box<dyn VenueCodec> {
@@ -119,6 +229,9 @@ pub fn replay_books<B: L2Book>(
     let mut kraken_books: BookSet<B> = BookSet::new(kraken_depth, make_book);
     let mut buf: Vec<Event> = Vec::with_capacity(4096);
     let mut digest = FNV_OFFSET;
+    // REST cross-validation samples (integer percent per scored snapshot).
+    let mut xv_exact: Vec<u64> = Vec::new();
+    let mut xv_price: Vec<u64> = Vec::new();
 
     while let Some(rec) = stream.next()? {
         out.records += 1;
@@ -171,20 +284,36 @@ pub fn replay_books<B: L2Book>(
                 out.rest_snapshots += 1;
                 let codec = codecs[idx].as_mut().expect("codec present");
                 match parse_rest_envelope(&rec.payload) {
-                    Ok((instrument, body)) => match codec.parse_rest_snapshot(
-                        instrument,
-                        body,
-                        rec.recv_mono_ns,
-                        rec.recv_wall_ns,
-                        &mut buf,
-                    ) {
-                        Ok(s) => Some(s),
-                        Err(_) => {
-                            buf.clear();
-                            out.parse_errors += 1;
-                            None
+                    Ok((instrument, body)) => {
+                        // Cross-validate the live book against the REST body
+                        // BEFORE applying it (only Coinbase/Binance take the
+                        // REST path; Kraken's oracle is the in-band CRC32).
+                        if matches!(venue, Venue::Coinbase | Venue::Binance) {
+                            out.crossval_snapshots += 1;
+                            score_crossval(
+                                &books,
+                                instrument,
+                                body,
+                                &mut out,
+                                &mut xv_exact,
+                                &mut xv_price,
+                            );
                         }
-                    },
+                        match codec.parse_rest_snapshot(
+                            instrument,
+                            body,
+                            rec.recv_mono_ns,
+                            rec.recv_wall_ns,
+                            &mut buf,
+                        ) {
+                            Ok(s) => Some(s),
+                            Err(_) => {
+                                buf.clear();
+                                out.parse_errors += 1;
+                                None
+                            }
+                        }
+                    }
                     Err(_) => {
                         out.parse_errors += 1;
                         None
@@ -234,6 +363,13 @@ pub fn replay_books<B: L2Book>(
         }
     }
 
+    xv_exact.sort_unstable();
+    xv_price.sort_unstable();
+    out.crossval_top10_overlap_p50 = percentile(&xv_exact, 50);
+    out.crossval_top10_overlap_p90 = percentile(&xv_exact, 90);
+    out.crossval_worst_overlap = xv_exact.first().copied().unwrap_or(0);
+    out.crossval_price_overlap_p50 = percentile(&xv_price, 50);
+    out.crossval_price_overlap_p90 = percentile(&xv_price, 90);
     out.torn_tails = stream.stats().torn_tails;
     out.event_stream_digest = digest;
     out.books_digest = books.combined_digest() ^ kraken_books.combined_digest().rotate_left(1);

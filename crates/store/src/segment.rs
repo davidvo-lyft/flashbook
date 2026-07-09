@@ -9,7 +9,8 @@
 //! header:  magic "FBSTORE1" | version u8=1 | flags u8=0 | rsvd u16 |
 //!          meta_len u32 | meta bytes (by convention JSON)
 //! blocks:  consecutive blocks, exactly the bytes [`crate::block::encode_block`]
-//!          produces
+//!          produces (self-delimiting; block versions 1 and 2 may mix in
+//!          one file and every read path handles both per block)
 //! footer (sealed files only, at EOF):
 //!          directory: per block { file_offset u64 | n_events u32 |
 //!            min_recv_mono u64 | max_recv_mono u64 |
@@ -36,6 +37,12 @@
 //! staging copies. The only allocations on the read path are the caller's
 //! output `Vec<Event>` (and zstd's transient decompress buffer for
 //! compressed blocks); that is the design.
+//!
+//! Column-pruned reads: [`StoreReader::scan_columns`] streams per-block
+//! [`ColumnData`] decoding only a [`ColumnSelection`]'s columns — on v2
+//! blocks the unselected column streams are skipped via the header offset
+//! table (see [`crate::block`] for what pruning does and does not save on
+//! zstd blocks).
 
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
@@ -44,7 +51,7 @@ use std::path::Path;
 use flashbook_proto::event::Event;
 use memmap2::Mmap;
 
-use crate::block::{self, BlockError, BlockHeader, MAX_BLOCK_EVENTS};
+use crate::block::{self, BlockError, BlockHeader, ColumnData, ColumnSelection, MAX_BLOCK_EVENTS};
 
 /// Segment file magic (first 8 bytes).
 pub const FILE_MAGIC: &[u8; 8] = b"FBSTORE1";
@@ -399,7 +406,9 @@ impl StoreReader {
                         });
                         break;
                     }
-                    let stored = &map[pos + block::HEADER_LEN..pos + total];
+                    // header_len is version-dependent (v1 blocks have no
+                    // column-offset table)
+                    let stored = &map[pos + h.header_len()..pos + total];
                     if crc32fast::hash(stored) != h.crc {
                         torn = Some(Torn {
                             valid_bytes: pos as u64,
@@ -485,6 +494,30 @@ impl StoreReader {
         Ok(h)
     }
 
+    /// Decode only the columns selected by `sel` from block `idx` into
+    /// `cols` (see [`crate::block::decode_block_columns`] for the fill
+    /// contract and the v2-prunes / v1-falls-back behavior). The body CRC
+    /// is verified either way.
+    pub fn decode_block_columns(
+        &self,
+        idx: usize,
+        sel: ColumnSelection,
+        cols: &mut ColumnData,
+    ) -> Result<BlockHeader, SegmentError> {
+        let Some(m) = self.blocks.get(idx) else {
+            return Err(SegmentError::BadBlockIndex {
+                idx,
+                blocks: self.blocks.len(),
+            });
+        };
+        let off = m.file_offset as usize;
+        let (h, _consumed) = block::decode_block_columns(&self.map[off..self.data_end], sel, cols)?;
+        if h.n_events != m.n_events {
+            return Err(SegmentError::Corrupt("directory/block n_events mismatch"));
+        }
+        Ok(h)
+    }
+
     /// Sequential scan over every event in file order. Returns the number
     /// of events visited.
     pub fn scan<F: FnMut(&Event)>(&self, mut sink: F) -> Result<u64, SegmentError> {
@@ -497,6 +530,33 @@ impl StoreReader {
                 sink(e);
                 n += 1;
             }
+        }
+        Ok(n)
+    }
+
+    /// Column-pruned sequential scan: for each block in file order, decode
+    /// only the columns selected by `sel` and hand the sink
+    /// `(columns, n_events)` for that block. Selected columns are
+    /// guaranteed `Some` with exactly `n_events` values, index-aligned
+    /// with each other (row `i` of every vector is event `i` of the
+    /// block); the one [`ColumnData`] is reused across blocks, so the
+    /// borrow ends when the sink returns. Returns total events visited.
+    ///
+    /// On v2 blocks unselected columns are never varint-decoded (the whole
+    /// point: an aggregate touching 4 of the 11 columns skips ~2/3 of the
+    /// decode work); v1 blocks fall back to decode-all and only the
+    /// materialization is pruned. Mixed-version files work per block.
+    pub fn scan_columns<F: FnMut(&ColumnData, usize)>(
+        &self,
+        sel: ColumnSelection,
+        mut sink: F,
+    ) -> Result<u64, SegmentError> {
+        let mut cols = ColumnData::default();
+        let mut n = 0u64;
+        for idx in 0..self.blocks.len() {
+            let h = self.decode_block_columns(idx, sel, &mut cols)?;
+            sink(&cols, h.n_events as usize);
+            n += u64::from(h.n_events);
         }
         Ok(n)
     }

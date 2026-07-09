@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::LazyLock;
 
 use flashbook_feed::codec::{CodecError, Signal, SymbolTable, VenueCodec};
-use flashbook_feed::kraken::{KrakenCodec, pair_decimals};
+use flashbook_feed::kraken::{KrakenCodec, check_pair_decimals, pair_decimals, v1_wsname};
 use flashbook_proto::event::flags;
 use flashbook_proto::kraken_crc::kraken_book_crc32;
 use flashbook_proto::{Event, EventKind, Registry, Venue};
@@ -598,4 +598,110 @@ proptest! {
         let mut out = Vec::new();
         let _ = c.parse_slow(bytes, MONO, WALL, &mut out);
     }
+}
+
+// ---------------------------------------------------------------------------
+// 8. Precision-drift tripwire: v1 wsname mapping + pinned-table comparison
+//    against AssetPairs JSON (synthetic drift cases and the real pinned
+//    fixture fetched from the venue on 2026-07-09).
+// ---------------------------------------------------------------------------
+
+/// The pinned universe as `(v2 symbol, (pair_decimals, lot_decimals))`.
+fn pinned_pairs() -> Vec<(String, (u32, u32))> {
+    ["BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD", "DOGE/USD"]
+        .iter()
+        .map(|s| ((*s).to_string(), pair_decimals(s).expect("pinned pair")))
+        .collect()
+}
+
+/// Minimal synthetic AssetPairs body covering the full pinned universe,
+/// with an override hook for drift injection.
+fn synthetic_assetpairs(mutate: impl Fn(&mut serde_json::Value)) -> String {
+    let mut v = serde_json::json!({
+        "error": [],
+        "result": {
+            "XXBTZUSD": {"wsname": "XBT/USD", "pair_decimals": 1, "lot_decimals": 8},
+            "XETHZUSD": {"wsname": "ETH/USD", "pair_decimals": 2, "lot_decimals": 8},
+            "SOLUSD":   {"wsname": "SOL/USD", "pair_decimals": 2, "lot_decimals": 8},
+            "XXRPZUSD": {"wsname": "XRP/USD", "pair_decimals": 5, "lot_decimals": 8},
+            "XDGUSD":   {"wsname": "XDG/USD", "pair_decimals": 7, "lot_decimals": 8},
+        }
+    });
+    mutate(&mut v);
+    v.to_string()
+}
+
+#[test]
+fn v1_wsname_maps_modern_names_to_rest_wsnames() {
+    assert_eq!(v1_wsname("BTC/USD"), "XBT/USD");
+    assert_eq!(v1_wsname("DOGE/USD"), "XDG/USD");
+    assert_eq!(v1_wsname("ETH/USD"), "ETH/USD");
+    assert_eq!(v1_wsname("SOL/USD"), "SOL/USD");
+    assert_eq!(v1_wsname("XRP/USD"), "XRP/USD");
+    // Hypothetical quote-side legacy code is mapped too (both components).
+    assert_eq!(v1_wsname("ETH/BTC"), "ETH/XBT");
+}
+
+#[test]
+fn check_pair_decimals_passes_on_matching_synthetic_response() {
+    let body = synthetic_assetpairs(|_| {});
+    let drifts = check_pair_decimals(&body, &pinned_pairs()).expect("parses");
+    assert!(drifts.is_empty(), "unexpected drift: {drifts:?}");
+}
+
+#[test]
+fn check_pair_decimals_detects_pair_decimals_drift() {
+    // Kraken repricing BTC/USD from 1 to 2 pair decimals must trip.
+    let body = synthetic_assetpairs(|v| {
+        v["result"]["XXBTZUSD"]["pair_decimals"] = serde_json::json!(2);
+    });
+    let drifts = check_pair_decimals(&body, &pinned_pairs()).expect("parses");
+    assert_eq!(drifts.len(), 1, "{drifts:?}");
+    assert!(drifts[0].contains("BTC/USD"), "{drifts:?}");
+    assert!(drifts[0].contains("pair_decimals"), "{drifts:?}");
+    assert!(drifts[0].contains("pinned 1"), "{drifts:?}");
+    assert!(drifts[0].contains("venue now 2"), "{drifts:?}");
+}
+
+#[test]
+fn check_pair_decimals_detects_lot_decimals_drift_and_missing_pair() {
+    let body = synthetic_assetpairs(|v| {
+        v["result"]["XDGUSD"]["lot_decimals"] = serde_json::json!(6);
+        v["result"]
+            .as_object_mut()
+            .unwrap()
+            .remove("SOLUSD")
+            .unwrap();
+    });
+    let drifts = check_pair_decimals(&body, &pinned_pairs()).expect("parses");
+    assert_eq!(drifts.len(), 2, "{drifts:?}");
+    // Drift order follows the pinned list order: SOL before DOGE.
+    assert!(drifts[0].contains("SOL/USD"), "{drifts:?}");
+    assert!(drifts[0].contains("missing"), "{drifts:?}");
+    assert!(drifts[1].contains("DOGE/USD"), "{drifts:?}");
+    assert!(drifts[1].contains("lot_decimals"), "{drifts:?}");
+}
+
+#[test]
+fn check_pair_decimals_rejects_uninterpretable_responses() {
+    let pinned = pinned_pairs();
+    // Bad JSON, venue-side error, and a missing result object are all
+    // Err ("check unavailable"), never reported as drift.
+    assert!(check_pair_decimals("not json {", &pinned).is_err());
+    let venue_err = r#"{"error":["EService:Unavailable"],"result":{}}"#;
+    assert!(check_pair_decimals(venue_err, &pinned).is_err());
+    assert!(check_pair_decimals(r#"{"error":[]}"#, &pinned).is_err());
+}
+
+#[test]
+fn pinned_table_matches_real_assetpairs_fixture() {
+    // Real /0/public/AssetPairs response (fetched 2026-07-09, checked in);
+    // the pinned 2026-07-07 snapshot must still match it exactly.
+    let body = std::fs::read_to_string(format!(
+        "{}/fixtures/kraken/assetpairs.json",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("assetpairs fixture present");
+    let drifts = check_pair_decimals(&body, &pinned_pairs()).expect("real response parses");
+    assert!(drifts.is_empty(), "pinned table drifted: {drifts:?}");
 }

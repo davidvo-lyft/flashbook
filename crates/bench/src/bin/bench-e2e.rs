@@ -25,7 +25,8 @@
 //! extra load is trivial; these are distinct WS connections, not the
 //! soak's). Per WS text frame:
 //!
-//! - `t0` = [`clock::mono_ns`] at frame receipt (full frame read),
+//! - `t0` = [`clock::mono_ns`] at frame receipt (the moment tungstenite
+//!   yields the complete message),
 //! - parse via the real venue codec (fast path, `parse_slow` fallback on
 //!   `Structure` errors) with `recv_mono_ns = t0` → `t1`,
 //! - publish every emitted event to a [`flashbook_bus`] ring → `t2`
@@ -47,11 +48,12 @@
 //! batching ≈ `venue_path - rtt/2` (approximation: symmetric path, instant
 //! pong turnaround).
 //!
-//! TRANSPORT NOTE: the bench crate deliberately carries no TLS dependency,
-//! so live mode terminates TLS in an `openssl s_client` child process and
-//! speaks RFC 6455 over its pipes with a minimal hand-rolled client in this
-//! binary. The extra pipe hop inflates `t0` (receive path) by pipe latency;
-//! it does NOT affect parse/publish/deliver, which all start at `t0`.
+//! TRANSPORT NOTE: live mode connects with `tokio-tungstenite`
+//! (`connect_async`, rustls with native roots) — the exact same
+//! WebSocket/TLS stack as the production capture path in
+//! `flashbook_feed::conn`. TLS is terminated in-process and `t0` is stamped
+//! the instant tungstenite yields a frame, so the receive path matches
+//! production capture: no child process, no extra pipe hop.
 //!
 //! Usage:
 //!   bench-e2e net  [--rate N] [--subs N] [--secs N] [--quick]
@@ -64,12 +66,12 @@
 //! [`flashbook_bench::results`]. Exit codes: 0 ok, 2 usage/IO.
 
 use std::collections::HashMap;
-use std::io::{BufReader, Read as _, Write as _};
+use std::io::{Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, ChildStdout, Command, ExitCode, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use flashbook_bench::loadgen::EventGen;
@@ -81,6 +83,9 @@ use flashbook_feed::kraken::KrakenCodec;
 use flashbook_feed::{CodecError, SymbolTable, VenueCodec};
 use flashbook_proto::event::EVENT_SIZE;
 use flashbook_proto::{Event, Registry, Venue, clock};
+use futures_util::{SinkExt as _, StreamExt as _};
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::Message;
 
 /// Bus ring capacity for the live pipeline (same as the fan-out bench).
 const RING_CAPACITY: usize = 65_536;
@@ -92,12 +97,12 @@ const NET_WARMUP_EVENTS: u64 = 1_000;
 const NET_SEED: u64 = 0xE2E0_57A6;
 /// Achieved/target ratio below which a net run is marked not sustained.
 const SUSTAINED_MIN_RATIO: f64 = 0.99;
-/// Live mode: WS connect + handshake budget before a venue is declared down.
+/// Live mode: WS connect + handshake (and each subscribe send) budget
+/// before a venue is declared down. Message size stays bounded by
+/// tungstenite's default 64 MiB cap (Coinbase snapshots run to a few MB).
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// Live mode: interval between RTT pings.
 const PING_INTERVAL: Duration = Duration::from_secs(5);
-/// Hard cap on one WebSocket message (Coinbase snapshots run to a few MB).
-const MAX_WS_MESSAGE: u64 = 64 * 1024 * 1024;
 
 const USAGE: &str = "usage: bench-e2e <net|live> [options]
   net  [--rate N] [--subs N] [--secs N] [--quick] [--results-dir DIR] [--overwrite]
@@ -423,302 +428,93 @@ fn run_net(cfg: &NetCfg) -> anyhow::Result<String> {
 }
 
 // ---------------------------------------------------------------------------
-// Minimal RFC 6455 client over an `openssl s_client` TLS child
+// live transport: tokio-tungstenite (rustls, native roots)
 // ---------------------------------------------------------------------------
 
-/// Standard base64 (RFC 4648, with padding) — only needed for the
-/// `Sec-WebSocket-Key` header, so hand-rolled instead of a dependency.
-fn b64_encode(data: &[u8]) -> String {
-    const TBL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let b = [
-            chunk[0],
-            *chunk.get(1).unwrap_or(&0),
-            *chunk.get(2).unwrap_or(&0),
-        ];
-        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-        out.push(TBL[(n >> 18) as usize & 63] as char);
-        out.push(TBL[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 {
-            TBL[(n >> 6) as usize & 63] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            TBL[n as usize & 63] as char
-        } else {
-            '='
-        });
+/// The live-mode connection type — identical to the production capture
+/// path's connection in `flashbook_feed::conn` (tokio-tungstenite over
+/// rustls with native roots).
+type LiveWs =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// Connect one venue WS and send its subscribe messages, every await
+/// bounded by [`CONNECT_TIMEOUT`]. Errors come back as human-readable note
+/// strings for the venue outcome.
+async fn ws_connect(url: &str, subscribe: Vec<String>) -> Result<LiveWs, String> {
+    let (mut ws, _resp) = tokio::time::timeout(CONNECT_TIMEOUT, connect_async(url))
+        .await
+        .map_err(|_| format!("timed out after {}s", CONNECT_TIMEOUT.as_secs()))?
+        .map_err(|e| e.to_string())?;
+    for m in subscribe {
+        tokio::time::timeout(CONNECT_TIMEOUT, ws.send(Message::Text(m.into())))
+            .await
+            .map_err(|_| "subscribe send timed out".to_string())?
+            .map_err(|e| format!("subscribe send: {e}"))?;
     }
-    out
+    Ok(ws)
 }
 
-/// Split a `wss://` (or `ws://`) URL into `(host, port, path-with-query)`.
-fn parse_ws_url(url: &str) -> Result<(String, u16, String), String> {
-    let rest = url
-        .strip_prefix("wss://")
-        .or_else(|| url.strip_prefix("ws://"))
-        .ok_or_else(|| format!("not a ws(s) url: {url}"))?;
-    let default_port = if url.starts_with("wss://") { 443 } else { 80 };
-    let (hostport, path) = match rest.find('/') {
-        Some(i) => (&rest[..i], rest[i..].to_string()),
-        None => (rest, "/".to_string()),
-    };
-    let (host, port) = match hostport.rsplit_once(':') {
-        Some((h, p)) => (
-            h,
-            p.parse::<u16>().map_err(|_| format!("bad port in {url}"))?,
-        ),
-        None => (hostport, default_port),
-    };
-    if host.is_empty() {
-        return Err(format!("empty host in {url}"));
-    }
-    Ok((host.to_string(), port, path))
+/// What the live loop does with one received message.
+#[derive(Debug, PartialEq, Eq)]
+enum LiveMsg<'a> {
+    /// A data frame to parse (text or binary payload).
+    Data(&'a [u8]),
+    /// A pong: candidate RTT echo for [`rtt_from_pong`].
+    Pong(&'a [u8]),
+    /// A server ping to answer with a payload-echoing pong (tungstenite
+    /// also queues one itself; the explicit reply matches production).
+    Ping(&'a [u8]),
+    /// Close frame: the session is over.
+    Close,
+    /// Raw frames never surface from a polled stream; ignore.
+    Ignore,
 }
 
-/// The HTTP/1.1 upgrade request for one WS connection.
-fn handshake_request(host: &str, port: u16, path: &str, key: &str) -> String {
-    let host_hdr = if port == 443 {
-        host.to_string()
+/// Classify one tungstenite message for the live loop. Pure; payloads are
+/// borrowed so the hot data path stays copy-free.
+fn classify(msg: &Message) -> LiveMsg<'_> {
+    match msg {
+        Message::Text(t) => LiveMsg::Data(t.as_bytes()),
+        Message::Binary(b) => LiveMsg::Data(b.as_ref()),
+        Message::Pong(p) => LiveMsg::Pong(p.as_ref()),
+        Message::Ping(p) => LiveMsg::Ping(p.as_ref()),
+        Message::Close(_) => LiveMsg::Close,
+        Message::Frame(_) => LiveMsg::Ignore,
+    }
+}
+
+/// Degradation note for a session that ended at `now` (mono ns), or `None`
+/// when the run deadline had already been reached (a clean end).
+fn early_close_note(name: &str, now: u64, start: u64, deadline: u64, why: &str) -> Option<String> {
+    (now < deadline).then(|| {
+        format!(
+            "{name} closed early ({}s in): {why}",
+            now.saturating_sub(start) / 1_000_000_000
+        )
+    })
+}
+
+/// RTT ping payload: the current [`clock::mono_ns`], little-endian.
+fn ping_payload(mono_ns: u64) -> [u8; 8] {
+    mono_ns.to_le_bytes()
+}
+
+/// RTT from a pong echo received at `now`: `Some(now - sent)` when
+/// `payload` is one of our 8-byte little-endian mono-ns stamps (saturating
+/// at 0), `None` otherwise (venue-originated pongs are ignored).
+fn rtt_from_pong(payload: &[u8], now: u64) -> Option<u64> {
+    let sent: [u8; 8] = payload.try_into().ok()?;
+    Some(now.saturating_sub(u64::from_le_bytes(sent)))
+}
+
+/// Venue-path sample from receive wall time vs venue timestamp:
+/// `(sample_ns, clamped)`, clamped to 0 when the venue clock reads ahead of
+/// the local wall clock.
+fn venue_path_sample(recv_wall: u64, venue_ts: u64) -> (u64, bool) {
+    if recv_wall >= venue_ts {
+        (recv_wall - venue_ts, false)
     } else {
-        format!("{host}:{port}")
-    };
-    format!(
-        "GET {path} HTTP/1.1\r\nHost: {host_hdr}\r\nUpgrade: websocket\r\n\
-         Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\
-         User-Agent: flashbook-bench-e2e/0.1\r\n\r\n"
-    )
-}
-
-/// True if an HTTP response head is a 101 Switching Protocols.
-fn http_is_101(head: &str) -> bool {
-    head.lines()
-        .next()
-        .is_some_and(|l| l.starts_with("HTTP/1.1 101") || l.starts_with("HTTP/1.0 101"))
-}
-
-/// XOR `buf` with the 4-byte WS mask (involution: applying twice restores).
-fn apply_mask(buf: &mut [u8], mask: [u8; 4]) {
-    for (i, b) in buf.iter_mut().enumerate() {
-        *b ^= mask[i & 3];
-    }
-}
-
-/// Encode one client→server frame (FIN set; client frames must be masked).
-fn encode_frame(opcode: u8, payload: &[u8], mask: [u8; 4]) -> Vec<u8> {
-    let mut v = Vec::with_capacity(payload.len() + 14);
-    v.push(0x80 | (opcode & 0x0f));
-    let len = payload.len();
-    if len < 126 {
-        #[allow(clippy::cast_possible_truncation)]
-        v.push(0x80 | len as u8);
-    } else if len <= 0xFFFF {
-        v.push(0x80 | 126);
-        #[allow(clippy::cast_possible_truncation)]
-        v.extend_from_slice(&(len as u16).to_be_bytes());
-    } else {
-        v.push(0x80 | 127);
-        v.extend_from_slice(&(len as u64).to_be_bytes());
-    }
-    v.extend_from_slice(&mask);
-    let start = v.len();
-    v.extend_from_slice(payload);
-    apply_mask(&mut v[start..], mask);
-    v
-}
-
-/// Number of extended-length bytes implied by the 7-bit length field.
-fn ext_len_bytes(len7: u8) -> usize {
-    match len7 {
-        126 => 2,
-        127 => 8,
-        _ => 0,
-    }
-}
-
-/// Decode the payload length from the 7-bit field + extended bytes.
-fn payload_len(len7: u8, ext: &[u8]) -> u64 {
-    match len7 {
-        126 => u64::from(u16::from_be_bytes([ext[0], ext[1]])),
-        127 => u64::from_be_bytes(ext.try_into().expect("8 ext bytes")),
-        n => u64::from(n),
-    }
-}
-
-/// One received WS message (data or control), stamped at read completion.
-struct WsMsg {
-    /// Payload kind.
-    kind: WsKind,
-    /// [`clock::mono_ns`] right after the final payload byte was read.
-    mono: u64,
-    /// [`clock::wall_ns`] captured with `mono`.
-    wall: u64,
-}
-
-/// Received message kinds this bench cares about.
-enum WsKind {
-    /// A complete text (or binary) message payload.
-    Text(Vec<u8>),
-    /// A Pong control frame payload (RTT echo).
-    Pong(Vec<u8>),
-    /// Connection is gone (close frame, EOF, error, or oversized frame).
-    Closed,
-}
-
-/// Send one masked client frame (Text 0x1, Ping 0x9, Pong 0xA, Close 0x8).
-fn send_frame(wr: &Mutex<ChildStdin>, opcode: u8, payload: &[u8]) -> std::io::Result<()> {
-    let frame = encode_frame(opcode, payload, rand::random::<[u8; 4]>());
-    let mut g = wr.lock().expect("ws writer lock");
-    g.write_all(&frame)?;
-    g.flush()
-}
-
-/// Read the next complete message, transparently answering Pings and
-/// unmasking (never-expected) masked server frames. Fragmented data
-/// messages are reassembled; the stamp is taken when the final fragment's
-/// payload has been read.
-fn read_message(rd: &mut BufReader<ChildStdout>, wr: &Mutex<ChildStdin>) -> WsMsg {
-    let closed = |mono: u64| WsMsg {
-        kind: WsKind::Closed,
-        mono,
-        wall: clock::wall_ns(),
-    };
-    let mut frag: Vec<u8> = Vec::new();
-    loop {
-        let mut hdr = [0u8; 2];
-        if rd.read_exact(&mut hdr).is_err() {
-            return closed(clock::mono_ns());
-        }
-        let fin = hdr[0] & 0x80 != 0;
-        let opcode = hdr[0] & 0x0f;
-        let masked = hdr[1] & 0x80 != 0;
-        let len7 = hdr[1] & 0x7f;
-        let mut ext = [0u8; 8];
-        let n_ext = ext_len_bytes(len7);
-        if n_ext > 0 && rd.read_exact(&mut ext[..n_ext]).is_err() {
-            return closed(clock::mono_ns());
-        }
-        let len = payload_len(len7, &ext[..n_ext]);
-        let mut mask = [0u8; 4];
-        if masked && rd.read_exact(&mut mask).is_err() {
-            return closed(clock::mono_ns());
-        }
-        if len > MAX_WS_MESSAGE {
-            return closed(clock::mono_ns());
-        }
-        let mut payload = vec![0u8; usize::try_from(len).expect("len bounded")];
-        if rd.read_exact(&mut payload).is_err() {
-            return closed(clock::mono_ns());
-        }
-        let mono = clock::mono_ns();
-        let wall = clock::wall_ns();
-        if masked {
-            apply_mask(&mut payload, mask);
-        }
-        match opcode {
-            0x0 => {
-                // continuation of a fragmented data message
-                frag.extend_from_slice(&payload);
-                if fin {
-                    return WsMsg {
-                        kind: WsKind::Text(std::mem::take(&mut frag)),
-                        mono,
-                        wall,
-                    };
-                }
-            }
-            0x1 | 0x2 => {
-                if fin {
-                    return WsMsg {
-                        kind: WsKind::Text(payload),
-                        mono,
-                        wall,
-                    };
-                }
-                frag = payload;
-            }
-            0x8 => {
-                let _ = send_frame(wr, 0x8, &[]);
-                return WsMsg {
-                    kind: WsKind::Closed,
-                    mono,
-                    wall,
-                };
-            }
-            0x9 => {
-                let _ = send_frame(wr, 0xA, &payload);
-            }
-            0xA => {
-                return WsMsg {
-                    kind: WsKind::Pong(payload),
-                    mono,
-                    wall,
-                };
-            }
-            _ => {} // unknown control/reserved: skip
-        }
-    }
-}
-
-/// Spawn the TLS child: `openssl s_client -quiet -ign_eof` (LibreSSL on
-/// stock macOS works; falls back to `/usr/bin/openssl` if `openssl` isn't
-/// on PATH). `-quiet` suppresses session chatter AND disables interactive
-/// command interpretation, so masked binary frames pass through untouched.
-fn spawn_tls(host: &str, port: u16) -> std::io::Result<Child> {
-    let spawn = |bin: &str| {
-        Command::new(bin)
-            .args(["s_client", "-quiet", "-ign_eof", "-connect"])
-            .arg(format!("{host}:{port}"))
-            .arg("-servername")
-            .arg(host)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-    };
-    spawn("openssl").or_else(|_| spawn("/usr/bin/openssl"))
-}
-
-/// Perform the HTTP upgrade over the child's pipes. Reads the response
-/// head byte-by-byte until `\r\n\r\n` (bounded), so no frame bytes are
-/// swallowed. Returns an error string on a non-101 response.
-fn ws_handshake(
-    rd: &mut BufReader<ChildStdout>,
-    wr: &Mutex<ChildStdin>,
-    host: &str,
-    port: u16,
-    path: &str,
-) -> Result<(), String> {
-    let key = b64_encode(&rand::random::<[u8; 16]>());
-    let req = handshake_request(host, port, path, &key);
-    {
-        let mut g = wr.lock().expect("ws writer lock");
-        g.write_all(req.as_bytes())
-            .map_err(|e| format!("handshake write: {e}"))?;
-        g.flush().map_err(|e| format!("handshake flush: {e}"))?;
-    }
-    let mut head = Vec::with_capacity(1024);
-    let mut b = [0u8; 1];
-    while !head.ends_with(b"\r\n\r\n") {
-        if head.len() > 64 * 1024 {
-            return Err("handshake response head too large".into());
-        }
-        rd.read_exact(&mut b)
-            .map_err(|e| format!("handshake read: {e}"))?;
-        head.push(b[0]);
-    }
-    let head = String::from_utf8_lossy(&head);
-    if http_is_101(&head) {
-        // NOTE: Sec-WebSocket-Accept is not verified (that needs SHA-1); a
-        // benchmark against known venue endpoints accepts 101 as sufficient.
-        Ok(())
-    } else {
-        Err(format!(
-            "handshake rejected: {}",
-            head.lines().next().unwrap_or("")
-        ))
+        (0, true)
     }
 }
 
@@ -948,50 +744,11 @@ fn ring_subscriber(
     s
 }
 
-/// Watchdog + pinger: kills the TLS child at the connect deadline (while
-/// unconnected) or the run deadline, whichever applies, and sends an RTT
-/// ping every [`PING_INTERVAL`] once connected. Also reaps the child.
-#[allow(clippy::too_many_arguments)]
-fn watchdog(
-    child: &Mutex<Child>,
-    wr: &Mutex<ChildStdin>,
-    connected: &AtomicBool,
-    done: &AtomicBool,
-    connect_deadline: u64,
-    run_deadline: u64,
-    pings_sent: &AtomicU64,
-) {
-    let kill = || {
-        let mut c = child.lock().expect("child lock");
-        let _ = c.kill();
-        let _ = c.wait();
-    };
-    let mut next_ping = clock::mono_ns() + PING_INTERVAL.as_nanos() as u64;
-    loop {
-        if done.load(Ordering::Acquire) {
-            kill();
-            return;
-        }
-        let now = clock::mono_ns();
-        let is_connected = connected.load(Ordering::Acquire);
-        if now >= run_deadline || (!is_connected && now >= connect_deadline) {
-            kill();
-            return;
-        }
-        if is_connected && now >= next_ping {
-            let payload = clock::mono_ns().to_le_bytes();
-            if send_frame(wr, 0x9, &payload).is_ok() {
-                pings_sent.fetch_add(1, Ordering::Relaxed);
-            }
-            next_ping = now + PING_INTERVAL.as_nanos() as u64;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-}
-
-/// Measure one venue for `secs` seconds. Never hangs: the watchdog kills
-/// the TLS child at the connect/run deadline, which unblocks every read.
-/// All failures degrade to a disconnected outcome with a note.
+/// Measure one venue for `secs` seconds over a [`LiveWs`] driven on a
+/// current-thread tokio runtime. Never hangs: connect/subscribe awaits are
+/// bounded by [`CONNECT_TIMEOUT`] and the read loop races the run deadline
+/// and the ping interval in a `select!`. All failures degrade to a
+/// disconnected (or partial) outcome with a note.
 fn run_live_venue(venue: Venue, base: &str, secs: u64) -> VenueOutcome {
     let mut o = VenueOutcome::new(venue);
     let reg = Registry::builtin();
@@ -1004,67 +761,27 @@ fn run_live_venue(venue: Venue, base: &str, secs: u64) -> VenueOutcome {
     };
     let mut codec = make_codec(venue, SymbolTable::new([(sym, id)]));
     let url = codec.ws_url();
-    let (host, port, path) = match parse_ws_url(&url) {
-        Ok(v) => v,
+    let rt = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
         Err(e) => {
-            o.note = e;
+            o.note = format!("{} runtime build failed: {e}", o.name);
+            eprintln!("live: {}", o.note);
             return o;
         }
     };
-    let mut child = match spawn_tls(&host, port) {
-        Ok(c) => c,
+    let mut ws = match rt.block_on(ws_connect(&url, codec.subscribe_messages())) {
+        Ok(ws) => ws,
         Err(e) => {
-            o.note = format!("openssl s_client spawn failed: {e}");
+            o.note = format!("{} connect failed: {e}", o.name);
+            eprintln!("live: {}", o.note);
             return o;
         }
     };
-    let stdin = child.stdin.take().expect("piped stdin");
-    let stdout = child.stdout.take().expect("piped stdout");
-    let mut rd = BufReader::new(stdout);
-    let wr = Arc::new(Mutex::new(stdin));
-    let child = Arc::new(Mutex::new(child));
-    let connected = Arc::new(AtomicBool::new(false));
-    let done = Arc::new(AtomicBool::new(false));
-    let pings_sent = Arc::new(AtomicU64::new(0));
-    let start = clock::mono_ns();
-    let connect_deadline = start + CONNECT_TIMEOUT.as_nanos() as u64;
-    let run_deadline = start + secs.saturating_mul(1_000_000_000);
-    let dog = {
-        let (child, wr) = (Arc::clone(&child), Arc::clone(&wr));
-        let (connected, done) = (Arc::clone(&connected), Arc::clone(&done));
-        let pings = Arc::clone(&pings_sent);
-        std::thread::spawn(move || {
-            watchdog(
-                &child,
-                &wr,
-                &connected,
-                &done,
-                connect_deadline,
-                run_deadline,
-                &pings,
-            );
-        })
-    };
-    let finish = |mut o: VenueOutcome| {
-        done.store(true, Ordering::Release);
-        let _ = dog.join();
-        o.pings_sent = pings_sent.load(Ordering::Relaxed);
-        o
-    };
-
-    if let Err(e) = ws_handshake(&mut rd, &wr, &host, port, &path) {
-        o.note = format!("{} connect failed: {e}", o.name);
-        return finish(o);
-    }
-    connected.store(true, Ordering::Release);
-    for m in codec.subscribe_messages() {
-        if let Err(e) = send_frame(&wr, 0x1, m.as_bytes()) {
-            o.note = format!("{} subscribe send failed: {e}", o.name);
-            return finish(o);
-        }
-    }
     o.connected = true;
-    eprintln!("live: {} connected ({host}:{port})", o.name);
+    eprintln!("live: {} connected ({url})", o.name);
 
     let mut producer = flashbook_bus::ring(RING_CAPACITY);
     let consumer = producer.subscribe();
@@ -1075,65 +792,116 @@ fn run_live_venue(venue: Venue, base: &str, secs: u64) -> VenueOutcome {
         std::thread::spawn(move || ring_subscriber(consumer, &stamp_rx, &stop))
     };
 
-    let mut events_buf: Vec<Event> = Vec::with_capacity(4096);
-    loop {
-        let msg = read_message(&mut rd, &wr);
-        match msg.kind {
-            WsKind::Closed => {
-                if msg.mono < run_deadline {
-                    o.note = format!(
-                        "{} closed early ({}s in)",
-                        o.name,
-                        (msg.mono - start) / 1_000_000_000
-                    );
-                }
-                break;
-            }
-            WsKind::Pong(p) => {
-                if p.len() == 8 {
-                    let sent = u64::from_le_bytes(p.as_slice().try_into().expect("8 bytes"));
-                    o.rtt.push(msg.mono.saturating_sub(sent));
-                }
-            }
-            WsKind::Text(payload) => {
-                let (t0, wall) = (msg.mono, msg.wall);
-                events_buf.clear();
-                let parsed = parse_with_fallback(
-                    codec.as_mut(),
-                    &payload,
-                    t0,
-                    wall,
-                    &mut events_buf,
-                    &mut o,
-                );
-                let t1 = clock::mono_ns();
-                if parsed {
-                    o.frames += 1;
-                    o.parse.push(t1 - t0);
-                }
-                if !events_buf.is_empty() {
-                    for ev in &events_buf {
-                        producer.publish(ev);
-                    }
-                    let t2 = clock::mono_ns();
-                    o.publish.push(t2 - t1);
-                    let _ = stamp_tx.send((t0, t2));
-                    o.events += events_buf.len() as u64;
-                    if let Some(vts) = events_buf.iter().map(|e| e.venue_ts_ns).find(|&v| v > 0) {
-                        if wall >= vts {
-                            o.venue_path.push(wall - vts);
-                        } else {
-                            o.venue_path.push(0);
-                            o.venue_path_clamped += 1;
+    let start = clock::mono_ns();
+    let run_deadline = start + secs.saturating_mul(1_000_000_000);
+    rt.block_on(async {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(secs);
+        let mut ping =
+            tokio::time::interval_at(tokio::time::Instant::now() + PING_INTERVAL, PING_INTERVAL);
+        ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut events_buf: Vec<Event> = Vec::with_capacity(4096);
+        loop {
+            tokio::select! {
+                () = tokio::time::sleep_until(deadline) => break,
+                _ = ping.tick() => {
+                    let sent = clock::mono_ns();
+                    let frame = Message::Ping(ping_payload(sent).to_vec().into());
+                    match tokio::time::timeout(PING_INTERVAL, ws.send(frame)).await {
+                        Ok(Ok(())) => o.pings_sent += 1,
+                        Ok(Err(e)) => {
+                            if let Some(n) = early_close_note(
+                                o.name, clock::mono_ns(), start, run_deadline,
+                                &format!("ping send: {e}"),
+                            ) {
+                                o.note = n;
+                            }
+                            break;
+                        }
+                        Err(_) => {
+                            if let Some(n) = early_close_note(
+                                o.name, clock::mono_ns(), start, run_deadline,
+                                "ping send timed out",
+                            ) {
+                                o.note = n;
+                            }
+                            break;
                         }
                     }
                 }
+                msg = ws.next() => {
+                    // t0: stamped the moment tungstenite yields the frame.
+                    let (t0, wall) = (clock::mono_ns(), clock::wall_ns());
+                    let msg = match msg {
+                        Some(Ok(m)) => m,
+                        Some(Err(e)) => {
+                            if let Some(n) = early_close_note(
+                                o.name, t0, start, run_deadline, &e.to_string(),
+                            ) {
+                                o.note = n;
+                            }
+                            break;
+                        }
+                        None => {
+                            if let Some(n) = early_close_note(
+                                o.name, t0, start, run_deadline, "stream ended",
+                            ) {
+                                o.note = n;
+                            }
+                            break;
+                        }
+                    };
+                    match classify(&msg) {
+                        LiveMsg::Data(payload) => {
+                            events_buf.clear();
+                            let parsed = parse_with_fallback(
+                                codec.as_mut(), payload, t0, wall, &mut events_buf, &mut o,
+                            );
+                            let t1 = clock::mono_ns();
+                            if parsed {
+                                o.frames += 1;
+                                o.parse.push(t1 - t0);
+                            }
+                            if !events_buf.is_empty() {
+                                for ev in &events_buf {
+                                    producer.publish(ev);
+                                }
+                                let t2 = clock::mono_ns();
+                                o.publish.push(t2 - t1);
+                                let _ = stamp_tx.send((t0, t2));
+                                o.events += events_buf.len() as u64;
+                                if let Some(vts) =
+                                    events_buf.iter().map(|e| e.venue_ts_ns).find(|&v| v > 0)
+                                {
+                                    let (sample, clamped) = venue_path_sample(wall, vts);
+                                    o.venue_path.push(sample);
+                                    o.venue_path_clamped += u64::from(clamped);
+                                }
+                            }
+                        }
+                        LiveMsg::Pong(p) => {
+                            if let Some(rtt) = rtt_from_pong(p, t0) {
+                                o.rtt.push(rtt);
+                            }
+                        }
+                        LiveMsg::Ping(p) => {
+                            let pong = Message::Pong(p.to_vec().into());
+                            let _ = tokio::time::timeout(PING_INTERVAL, ws.send(pong)).await;
+                        }
+                        LiveMsg::Close => {
+                            if let Some(n) = early_close_note(
+                                o.name, t0, start, run_deadline, "server close",
+                            ) {
+                                o.note = n;
+                            }
+                            break;
+                        }
+                        LiveMsg::Ignore => {}
+                    }
+                }
             }
         }
-        if clock::mono_ns() >= run_deadline {
-            break;
-        }
-    }
+        let _ = tokio::time::timeout(Duration::from_secs(2), ws.close(None)).await;
+    });
     drop(stamp_tx);
     stop.store(true, Ordering::Release);
     let stats = sub.join().expect("subscriber thread panicked");
@@ -1143,7 +911,7 @@ fn run_live_venue(venue: Venue, base: &str, secs: u64) -> VenueOutcome {
     o.total_steady = stats.total_steady;
     o.lagged_lost = stats.lagged_lost;
     o.unmatched = stats.unmatched;
-    finish(o)
+    o
 }
 
 /// JSON block for one venue's live outcome.
@@ -1237,8 +1005,8 @@ fn run_live(cfg: &LiveCfg) -> anyhow::Result<String> {
     };
     let live_notes = format!(
         "Decomposition of the LOCAL pipeline only, measured on live venue traffic ({}-USD, one \
-         extra WS connection per venue, run alongside the capture soak). t0 = mono_ns when a WS \
-         text frame has been fully read; parse = t1-t0 (production codec fast path incl. \
+         extra WS connection per venue, run alongside the capture soak). t0 = mono_ns when \
+         tungstenite yields a complete WS text frame; parse = t1-t0 (production codec fast path incl. \
          serde_json fallback); publish = t2-t1 (bus ring publish of the frame's events, t2 \
          stamped once per frame after all its publishes); deliver = t3-t2 per event (subscriber \
          thread dequeue, matched to its frame via recv_mono_ns == t0); total_added = t3-t0. \
@@ -1247,19 +1015,20 @@ fn run_live(cfg: &LiveCfg) -> anyhow::Result<String> {
          flashbook: venue_path = recv_wall - venue_ts per venue-stamped frame; it includes \
          venue-side batching (Coinbase level2_batch ~50 ms, Binance depth@100ms cadence) + WAN \
          transit + venue<->host wall-clock offset; bound venue-internal batching ~= venue_path - \
-         rtt/2 using e2e_rtt.json (approximation: symmetric path). LIMITATIONS: (1) TLS is \
-         terminated by an openssl s_client child; frames cross one extra pipe hop before t0, \
-         inflating the receive path by pipe latency but leaving parse/publish/deliver (which \
-         start at t0) untouched. (2) The ring subscriber yields every 256 empty polls (soak \
-         politeness); its wakeup cost is inside deliver. (3) No REST resync is wired, so Binance \
+         rtt/2 using e2e_rtt.json (approximation: symmetric path). TRANSPORT: the same \
+         WebSocket/TLS stack as the production capture path — tokio-tungstenite (connect_async) \
+         with rustls (native roots), TLS terminated in-process; t0 sits after TLS decrypt + WS \
+         frame assembly, matching production's receive stamp (no child process, no pipe hop). \
+         LIMITATIONS: (1) The ring subscriber yields every 256 empty polls (soak \
+         politeness); its wakeup cost is inside deliver. (2) No REST resync is wired, so Binance \
          depth events stay unsynced and are dropped by the codec; Binance samples are dominated \
-         by trade frames (resync_signals counts the codec asking). (4) venue_path samples where \
+         by trade frames (resync_signals counts the codec asking). (3) venue_path samples where \
          the venue clock is ahead of local wall are clamped to 0 and counted \
          (venue_path_clamped); a clamp count near n means the local-vs-venue wall-clock offset \
          exceeds the one-way path and venue_path is uninterpretable without an offset \
-         correction — the RTT file is the trustworthy WAN bound in that case. (5) deliver \
+         correction — the RTT file is the trustworthy WAN bound in that case. (4) deliver \
          saturates at 0 for events dequeued before their frame's t2 stamp was taken (t2 is \
-         per-frame, after ALL its publishes). (6) The initial full-book snapshot arrives as one \
+         per-frame, after ALL its publishes). (5) The initial full-book snapshot arrives as one \
          enormous frame; its sequential per-event drain dominates event-weighted deliver/ \
          total_added percentiles on short windows, so *_steady_ns (events without the \
          FROM_SNAPSHOT flag) is published alongside and is the steady-state number.{quick_note}",
@@ -1286,10 +1055,10 @@ fn run_live(cfg: &LiveCfg) -> anyhow::Result<String> {
         "RTT method: every 5 s a WS Ping with an 8-byte little-endian mono_ns payload is sent; \
          on the Pong echo, rtt = mono_ns - payload. Subtraction method for readers: \
          venue-internal batching ~= venue_path (e2e_live.json) - rtt/2, an approximation that \
-         assumes a symmetric WAN path and instant pong turnaround. RTT includes the openssl \
-         s_client pipe hops in both directions (adds microseconds against millisecond WANs). n \
-         is small by design (one ping per 5 s); high percentiles saturate at the max \
-         accordingly.{quick_note}"
+         assumes a symmetric WAN path and instant pong turnaround. Pings and pongs travel the \
+         same in-process tungstenite+rustls transport as the data frames (the production \
+         capture stack; no child process or pipe hops). n is small by design (one ping per \
+         5 s); high percentiles saturate at the max accordingly.{quick_note}"
     );
     let rtt = ResultFile::new(
         "e2e_rtt",
@@ -1460,99 +1229,57 @@ mod tests {
     }
 
     #[test]
-    fn base64_rfc4648_vectors() {
-        assert_eq!(b64_encode(b""), "");
-        assert_eq!(b64_encode(b"f"), "Zg==");
-        assert_eq!(b64_encode(b"fo"), "Zm8=");
-        assert_eq!(b64_encode(b"foo"), "Zm9v");
-        assert_eq!(b64_encode(b"foobar"), "Zm9vYmFy");
-        // the RFC 6455 sample nonce
-        assert_eq!(b64_encode(b"the sample nonce"), "dGhlIHNhbXBsZSBub25jZQ==");
+    fn live_message_classification() {
+        assert_eq!(classify(&Message::Text("x".into())), LiveMsg::Data(b"x"));
+        assert_eq!(
+            classify(&Message::Binary(vec![1, 2].into())),
+            LiveMsg::Data(&[1, 2])
+        );
+        assert_eq!(
+            classify(&Message::Pong(vec![9].into())),
+            LiveMsg::Pong(&[9])
+        );
+        assert_eq!(
+            classify(&Message::Ping(vec![7].into())),
+            LiveMsg::Ping(&[7])
+        );
+        assert_eq!(classify(&Message::Close(None)), LiveMsg::Close);
     }
 
     #[test]
-    fn ws_url_parsing() {
-        assert_eq!(
-            parse_ws_url("wss://ws.kraken.com/v2").unwrap(),
-            ("ws.kraken.com".into(), 443, "/v2".into())
-        );
-        assert_eq!(
-            parse_ws_url("wss://stream.binance.com:9443/stream?streams=a@x/b@y").unwrap(),
-            (
-                "stream.binance.com".into(),
-                9443,
-                "/stream?streams=a@x/b@y".into()
-            )
-        );
-        assert_eq!(
-            parse_ws_url("wss://ws-feed.exchange.coinbase.com").unwrap(),
-            ("ws-feed.exchange.coinbase.com".into(), 443, "/".into())
-        );
-        assert_eq!(
-            parse_ws_url("ws://h/x").unwrap(),
-            ("h".into(), 80, "/x".into())
-        );
-        assert!(parse_ws_url("https://x/y").is_err());
-        assert!(parse_ws_url("wss://h:notaport/").is_err());
-        assert!(parse_ws_url("wss:///path").is_err());
+    fn rtt_ping_pong_roundtrip() {
+        let sent = 123_456_789u64;
+        let p = ping_payload(sent);
+        assert_eq!(rtt_from_pong(&p, sent + 1_000), Some(1_000));
+        // saturates instead of underflowing if the echo beats the clock
+        assert_eq!(rtt_from_pong(&p, 0), Some(0));
+        // non-8-byte payloads (venue-originated pongs) are ignored
+        assert_eq!(rtt_from_pong(b"", 5), None);
+        assert_eq!(rtt_from_pong(b"123456789", 5), None);
     }
 
     #[test]
-    fn handshake_request_shape_and_101_check() {
-        let req = handshake_request("h.example", 443, "/v2", "KEY==");
-        assert!(req.starts_with("GET /v2 HTTP/1.1\r\n"));
-        assert!(req.contains("Host: h.example\r\n"));
-        assert!(req.contains("Sec-WebSocket-Key: KEY==\r\n"));
-        assert!(req.contains("Sec-WebSocket-Version: 13\r\n"));
-        assert!(req.ends_with("\r\n\r\n"));
-        // non-default port lands in the Host header
-        assert!(handshake_request("h", 9443, "/", "k").contains("Host: h:9443\r\n"));
-
-        assert!(http_is_101(
-            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
-        ));
-        assert!(!http_is_101("HTTP/1.1 400 Bad Request\r\n"));
-        assert!(!http_is_101(""));
+    fn venue_path_clamping() {
+        assert_eq!(venue_path_sample(1_000, 400), (600, false));
+        assert_eq!(venue_path_sample(400, 1_000), (0, true));
+        assert_eq!(venue_path_sample(7, 7), (0, false));
     }
 
     #[test]
-    fn frame_encode_mask_and_lengths() {
-        // masking is an involution
-        let mut data = (0u8..=255).collect::<Vec<u8>>();
-        let orig = data.clone();
-        let mask = [0xA5, 0x01, 0xFF, 0x37];
-        apply_mask(&mut data, mask);
-        assert_ne!(data, orig);
-        apply_mask(&mut data, mask);
-        assert_eq!(data, orig);
-
-        // short frame: 7-bit length, mask bit set, FIN set
-        let f = encode_frame(0x9, b"12345678", mask);
-        assert_eq!(f[0], 0x89);
-        assert_eq!(f[1], 0x80 | 8);
-        assert_eq!(&f[2..6], &mask);
-        let mut body = f[6..].to_vec();
-        apply_mask(&mut body, mask);
-        assert_eq!(&body, b"12345678");
-
-        // 126: 16-bit extended length
-        let f = encode_frame(0x1, &[0u8; 300], mask);
-        assert_eq!(f[1] & 0x7f, 126);
-        assert_eq!(u16::from_be_bytes([f[2], f[3]]), 300);
-        assert_eq!(f.len(), 2 + 2 + 4 + 300);
-
-        // 127: 64-bit extended length
-        let f = encode_frame(0x2, &[0u8; 70_000], mask);
-        assert_eq!(f[1] & 0x7f, 127);
-        assert_eq!(u64::from_be_bytes(f[2..10].try_into().unwrap()), 70_000);
-
-        // decode side
-        assert_eq!(ext_len_bytes(125), 0);
-        assert_eq!(ext_len_bytes(126), 2);
-        assert_eq!(ext_len_bytes(127), 8);
-        assert_eq!(payload_len(5, &[]), 5);
-        assert_eq!(payload_len(126, &300u16.to_be_bytes()), 300);
-        assert_eq!(payload_len(127, &70_000u64.to_be_bytes()), 70_000);
+    fn early_close_note_formatting() {
+        // before the deadline: a note with whole seconds elapsed + reason
+        assert_eq!(
+            early_close_note("kraken", 7_900_000_000, 500_000_000, 60_000_000_000, "eof"),
+            Some("kraken closed early (7s in): eof".into())
+        );
+        // sub-second sessions read "0s in"
+        assert_eq!(
+            early_close_note("binance", 10, 5, 100, "x"),
+            Some("binance closed early (0s in): x".into())
+        );
+        // at/after the deadline: clean end, no note
+        assert_eq!(early_close_note("coinbase", 100, 0, 100, "x"), None);
+        assert_eq!(early_close_note("coinbase", 200, 0, 100, "x"), None);
     }
 
     #[test]
