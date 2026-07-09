@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "name": "store_write",
+  "created_unix_ms": 1783576619167,
+  "host": {
+    "cpu": "Apple M5 Max",
+    "cores": 18,
+    "mem_gb": 64,
+    "os": "macOS 26.5.1",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+  },
+  "config": {
+    "block_events": 8192,
+    "events": 226404844,
+    "quick": false,
+    "store": "data/store/full.fbstore",
+    "store_bytes": 2061064364,
+    "threads": 1,
+    "zstd_level": 3
+  },
+  "metrics": {
+    "raw": {
+      "bytes_per_event": 20.34134643338285,
+      "events_per_s": [
+        38656224.501806475,
+        40972438.92299896,
+        40937101.570022814
+      ],
+      "mb_per_s_logical": [
+        2473.9983681156145,
+        2622.236091071933,
+        2619.97450048146
+      ],
+      "mean_events_per_s": 40188588.33160942,
+      "mean_mb_per_s_logical": 2572.0696532230027,
+      "pass_seconds": [
+        5.856879375,
+        5.525783916,
+        5.530553833
+      ],
+      "stored_bytes": 4605379366,
+      "zstd_level": null
+    },
+    "zstd": {
+      "bytes_per_event": 9.103446015492496,
+      "events_per_s": [
+        15665718.57019368,
+        15689741.130299395,
+        15700633.375498477
+      ],
+      "mb_per_s_logical": [
+        1002.6059884923956,
+        1004.1434323391612,
+        1004.8405360319025
+      ],
+      "mean_events_per_s": 15685364.358663851,
+      "mean_mb_per_s_logical": 1003.8633189544865,
+      "pass_seconds": [
+        14.452247625,
+        14.430119791,
+        14.420108959
+      ],
+      "stored_bytes": 2061064275,
+      "zstd_level": 3
+    }
+  },
+  "notes": "Re-encoding the store's 226404844 decoded events through StoreWriter (append+seal, block_events=8192) to a scratch file, 3 pass(es) per mode. MB/s is logical (events * 64 B / s); encode cost only, source events pre-decoded in memory."
+}

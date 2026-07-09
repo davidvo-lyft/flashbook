@@ -1,0 +1,92 @@
+{
+  "schema": 1,
+  "name": "lob_replay",
+  "created_unix_ms": 1783574148825,
+  "host": {
+    "cpu": "Apple M5 Max",
+    "cores": 18,
+    "mem_gb": 64,
+    "os": "macOS 26.5.1",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+  },
+  "config": {
+    "checksum_mismatches": 0,
+    "checksums_ok": 41692848,
+    "data": "data/raw",
+    "events": 226404844,
+    "kraken_depth": 100,
+    "measured_passes": 5,
+    "parse_errors": 0,
+    "quick": false,
+    "raw_payload_bytes": 14095629974,
+    "records": 55820598,
+    "span_mono_s": 64050.474709041,
+    "threads": 1,
+    "warmup_passes": 1,
+    "ws_frames": 55819963
+  },
+  "metrics": {
+    "btree": {
+      "events_per_s": [
+        24070675.584601056,
+        24296596.93680018,
+        24384769.31784192,
+        24212898.58602658,
+        24390075.248141147
+      ],
+      "mean_events_per_s": 24271003.13468218,
+      "pass_seconds": [
+        9.405836708,
+        9.31837675,
+        9.284682625,
+        9.350588208,
+        9.282662792
+      ]
+    },
+    "digests_match": true,
+    "ladder": {
+      "events_per_s": [
+        10072734.3266193,
+        10099423.488743514,
+        10084899.664160315,
+        10063998.660947839,
+        9953948.431758532
+      ],
+      "mean_events_per_s": 10055000.9144459,
+      "pass_seconds": [
+        22.476999458,
+        22.417600792,
+        22.449885625,
+        22.49650975,
+        22.74522975
+      ]
+    },
+    "timer_overhead_ns": 31.017041,
+    "tob_latency": {
+      "btree": {
+        "max": 339542,
+        "mean": 32.326234354407,
+        "min": 0,
+        "n": 22598696,
+        "p50": 41,
+        "p90": 42,
+        "p99": 125,
+        "p999": 167,
+        "stdev": 89.35627281211283
+      },
+      "ladder": {
+        "max": 1050459,
+        "mean": 609.1716306551493,
+        "min": 0,
+        "n": 22598696,
+        "p50": 42,
+        "p90": 2375,
+        "p99": 5292,
+        "p999": 5875,
+        "stdev": 1272.5453061952892
+      }
+    },
+    "winner": "btree"
+  },
+  "notes": "Single-threaded book-apply benchmark over pre-parsed events (parse cost excluded). msgs/s-equivalent derives as ws_frames / pass_seconds. Latency samples each include one Instant::now()/elapsed() pair (~31.0ns measured on this run); only applies returning Mutated{top_changed:true} are kept. Winner is reported, not acted on (representation choice is a later phase)."
+}

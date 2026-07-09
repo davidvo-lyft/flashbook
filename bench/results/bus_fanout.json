@@ -1,0 +1,937 @@
+{
+  "schema": 1,
+  "name": "bus_fanout",
+  "created_unix_ms": 1783577776278,
+  "host": {
+    "cpu": "Apple M5 Max",
+    "cores": 18,
+    "mem_gb": 64,
+    "os": "macOS 26.5.1",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+  },
+  "config": {
+    "capacity": 65536,
+    "paced_msgs": 2500000,
+    "paced_rate_msgs_per_s": 500000,
+    "quick": false,
+    "sample_cap_per_subscriber": 2000000,
+    "sample_stride": 2,
+    "seed": 184941079,
+    "subscriber_counts": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "throughput_msgs": 5000000
+  },
+  "metrics": {
+    "crossbeam_channel": {
+      "latency": [
+        {
+          "achieved_publish_msgs_per_s": 499999.9375000078,
+          "latency_ns": {
+            "max": 378500,
+            "mean": 1812.7248952,
+            "min": 83,
+            "n": 1250000,
+            "p50": 1250,
+            "p90": 4500,
+            "p99": 7417,
+            "p999": 20292,
+            "stdev": 3002.5220519231443
+          },
+          "msgs": 2500000,
+          "paced_rate_msgs_per_s": 500000,
+          "per_subscriber": [
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000008417,
+              "lost": 0,
+              "samples": 1250000
+            }
+          ],
+          "producer_elapsed_ns": 5000000625,
+          "sample_stride": 2,
+          "subscribers": 1
+        },
+        {
+          "achieved_publish_msgs_per_s": 499999.5292004433,
+          "latency_ns": {
+            "max": 516791,
+            "mean": 2443.6535924,
+            "min": 83,
+            "n": 2500000,
+            "p50": 1875,
+            "p90": 5166,
+            "p99": 9208,
+            "p999": 24500,
+            "stdev": 3913.8335381140923
+          },
+          "msgs": 2500000,
+          "paced_rate_msgs_per_s": 500000,
+          "per_subscriber": [
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 4999999958,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000013708,
+              "lost": 0,
+              "samples": 1250000
+            }
+          ],
+          "producer_elapsed_ns": 5000004708,
+          "sample_stride": 2,
+          "subscribers": 2
+        },
+        {
+          "achieved_publish_msgs_per_s": 499999.5000005,
+          "latency_ns": {
+            "max": 547125,
+            "mean": 3563.4089432,
+            "min": 42,
+            "n": 5000000,
+            "p50": 2250,
+            "p90": 7584,
+            "p99": 21667,
+            "p999": 47917,
+            "stdev": 5364.022774973522
+          },
+          "msgs": 2500000,
+          "paced_rate_msgs_per_s": 500000,
+          "per_subscriber": [
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000015041,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000016708,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000016709,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000022333,
+              "lost": 0,
+              "samples": 1250000
+            }
+          ],
+          "producer_elapsed_ns": 5000005000,
+          "sample_stride": 2,
+          "subscribers": 4
+        },
+        {
+          "achieved_publish_msgs_per_s": 499999.950000005,
+          "latency_ns": {
+            "max": 1524875,
+            "mean": 5228.9760588,
+            "min": 41,
+            "n": 10000000,
+            "p50": 2417,
+            "p90": 13084,
+            "p99": 28583,
+            "p999": 43291,
+            "stdev": 9062.187633085663
+          },
+          "msgs": 2500000,
+          "paced_rate_msgs_per_s": 500000,
+          "per_subscriber": [
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000027416,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000039292,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000026875,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000025042,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000028792,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000014792,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000013084,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000043583,
+              "lost": 0,
+              "samples": 1250000
+            }
+          ],
+          "producer_elapsed_ns": 5000000500,
+          "sample_stride": 2,
+          "subscribers": 8
+        }
+      ],
+      "throughput": [
+        {
+          "msgs": 5000000,
+          "per_subscriber": [
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 58569755.61839752,
+              "elapsed_ns": 85368292,
+              "lost": 0
+            }
+          ],
+          "producer_elapsed_ns": 84914084,
+          "producer_publish_msgs_per_s": 58883047.01019916,
+          "subscribers": 1
+        },
+        {
+          "msgs": 5000000,
+          "per_subscriber": [
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 6773125.910163347,
+              "elapsed_ns": 738211583,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 6772987.525758112,
+              "elapsed_ns": 738226666,
+              "lost": 0
+            }
+          ],
+          "producer_elapsed_ns": 738215458,
+          "producer_publish_msgs_per_s": 6773090.35704316,
+          "subscribers": 2
+        },
+        {
+          "msgs": 5000000,
+          "per_subscriber": [
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 3533795.124921414,
+              "elapsed_ns": 1414909417,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 3533779.7226495175,
+              "elapsed_ns": 1414915584,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 3533857.9816688183,
+              "elapsed_ns": 1414884250,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 3533763.698634978,
+              "elapsed_ns": 1414922000,
+              "lost": 0
+            }
+          ],
+          "producer_elapsed_ns": 1414903292,
+          "producer_publish_msgs_per_s": 3533810.422429917,
+          "subscribers": 4
+        },
+        {
+          "msgs": 5000000,
+          "per_subscriber": [
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 1115383.7847583108,
+              "elapsed_ns": 4482761959,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 1115383.867862927,
+              "elapsed_ns": 4482761625,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 1115384.0544751342,
+              "elapsed_ns": 4482760875,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 1115384.5521079917,
+              "elapsed_ns": 4482758875,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 1115380.7056663674,
+              "elapsed_ns": 4482774334,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 1115384.147781261,
+              "elapsed_ns": 4482760500,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 1115381.141341294,
+              "elapsed_ns": 4482772583,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 1115379.8350639788,
+              "elapsed_ns": 4482777833,
+              "lost": 0
+            }
+          ],
+          "producer_elapsed_ns": 4482755583,
+          "producer_publish_msgs_per_s": 1115385.3712126424,
+          "subscribers": 8
+        }
+      ]
+    },
+    "ring": {
+      "latency": [
+        {
+          "achieved_publish_msgs_per_s": 500000.1917000735,
+          "latency_ns": {
+            "max": 146333,
+            "mean": 139.8436616,
+            "min": 41,
+            "n": 1250000,
+            "p50": 125,
+            "p90": 208,
+            "p99": 292,
+            "p999": 5250,
+            "stdev": 655.6755330004787
+          },
+          "msgs": 2500000,
+          "paced_rate_msgs_per_s": 500000,
+          "per_subscriber": [
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000000875,
+              "lost": 0,
+              "samples": 1250000
+            }
+          ],
+          "producer_elapsed_ns": 4999998083,
+          "sample_stride": 2,
+          "subscribers": 1
+        },
+        {
+          "achieved_publish_msgs_per_s": 500000.1917000735,
+          "latency_ns": {
+            "max": 173917,
+            "mean": 154.89745,
+            "min": 41,
+            "n": 2500000,
+            "p50": 125,
+            "p90": 208,
+            "p99": 333,
+            "p999": 5458,
+            "stdev": 868.2328096306595
+          },
+          "msgs": 2500000,
+          "paced_rate_msgs_per_s": 500000,
+          "per_subscriber": [
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 4999999625,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 4999995292,
+              "lost": 0,
+              "samples": 1250000
+            }
+          ],
+          "producer_elapsed_ns": 4999998083,
+          "sample_stride": 2,
+          "subscribers": 2
+        },
+        {
+          "achieved_publish_msgs_per_s": 500000.18340006727,
+          "latency_ns": {
+            "max": 407416,
+            "mean": 389.8441372,
+            "min": 41,
+            "n": 5000000,
+            "p50": 209,
+            "p90": 250,
+            "p99": 5875,
+            "p999": 14291,
+            "stdev": 1969.1350234165814
+          },
+          "msgs": 2500000,
+          "paced_rate_msgs_per_s": 500000,
+          "per_subscriber": [
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 4999999417,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 4999998542,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 4999982709,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 4999999750,
+              "lost": 0,
+              "samples": 1250000
+            }
+          ],
+          "producer_elapsed_ns": 4999998166,
+          "sample_stride": 2,
+          "subscribers": 4
+        },
+        {
+          "achieved_publish_msgs_per_s": 500000.1667000556,
+          "latency_ns": {
+            "max": 1442500,
+            "mean": 719.9451289,
+            "min": 41,
+            "n": 10000000,
+            "p50": 416,
+            "p90": 500,
+            "p99": 5666,
+            "p999": 43167,
+            "stdev": 7992.761663734173
+          },
+          "msgs": 2500000,
+          "paced_rate_msgs_per_s": 500000,
+          "per_subscriber": [
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000005667,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000005375,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000004833,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 4999991250,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 4999998792,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 4999997000,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 4999998459,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000007458,
+              "lost": 0,
+              "samples": 1250000
+            }
+          ],
+          "producer_elapsed_ns": 4999998333,
+          "sample_stride": 2,
+          "subscribers": 8
+        }
+      ],
+      "throughput": [
+        {
+          "msgs": 5000000,
+          "per_subscriber": [
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 11466327.331869839,
+              "elapsed_ns": 436059416,
+              "lost": 0
+            }
+          ],
+          "producer_elapsed_ns": 436056250,
+          "producer_publish_msgs_per_s": 11466410.58349697,
+          "subscribers": 1
+        },
+        {
+          "msgs": 5000000,
+          "per_subscriber": [
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 9436285.726957299,
+              "elapsed_ns": 529869500,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 9436413.345810687,
+              "elapsed_ns": 529862334,
+              "lost": 0
+            }
+          ],
+          "producer_elapsed_ns": 529863416,
+          "producer_publish_msgs_per_s": 9436394.076317962,
+          "subscribers": 2
+        },
+        {
+          "msgs": 5000000,
+          "per_subscriber": [
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 7760858.953491258,
+              "elapsed_ns": 644258584,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 7760855.953992019,
+              "elapsed_ns": 644258833,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 7760925.220128127,
+              "elapsed_ns": 644253083,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 7760816.804114173,
+              "elapsed_ns": 644262083,
+              "lost": 0
+            }
+          ],
+          "producer_elapsed_ns": 644235042,
+          "producer_publish_msgs_per_s": 7761142.55517321,
+          "subscribers": 4
+        },
+        {
+          "msgs": 5000000,
+          "per_subscriber": [
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 4654139.998595734,
+              "elapsed_ns": 1074312333,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 4654141.259267389,
+              "elapsed_ns": 1074312042,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 4654144.1488507,
+              "elapsed_ns": 1074311375,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 4654148.303445286,
+              "elapsed_ns": 1074310416,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 4654205.1645180965,
+              "elapsed_ns": 1074297291,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 4654219.422243818,
+              "elapsed_ns": 1074294000,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 4654200.108700147,
+              "elapsed_ns": 1074298458,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 4654138.014447228,
+              "elapsed_ns": 1074312791,
+              "lost": 0
+            }
+          ],
+          "producer_elapsed_ns": 1074292792,
+          "producer_publish_msgs_per_s": 4654224.655730539,
+          "subscribers": 8
+        }
+      ]
+    },
+    "tokio_broadcast": {
+      "latency": [
+        {
+          "achieved_publish_msgs_per_s": 500000.1750000612,
+          "latency_ns": {
+            "max": 352750,
+            "mean": 2574.945376,
+            "min": 125,
+            "n": 1250000,
+            "p50": 2084,
+            "p90": 5000,
+            "p99": 8916,
+            "p999": 23625,
+            "stdev": 2872.803878902311
+          },
+          "msgs": 2500000,
+          "paced_rate_msgs_per_s": 500000,
+          "per_subscriber": [
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 4999998542,
+              "lost": 0,
+              "samples": 1250000
+            }
+          ],
+          "producer_elapsed_ns": 4999998250,
+          "sample_stride": 2,
+          "subscribers": 1
+        },
+        {
+          "achieved_publish_msgs_per_s": 500000.16250005283,
+          "latency_ns": {
+            "max": 509167,
+            "mean": 2765.8980728,
+            "min": 125,
+            "n": 2500000,
+            "p50": 2250,
+            "p90": 5375,
+            "p99": 9625,
+            "p999": 24292,
+            "stdev": 3835.1327484702038
+          },
+          "msgs": 2500000,
+          "paced_rate_msgs_per_s": 500000,
+          "per_subscriber": [
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000003500,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000002833,
+              "lost": 0,
+              "samples": 1250000
+            }
+          ],
+          "producer_elapsed_ns": 4999998375,
+          "sample_stride": 2,
+          "subscribers": 2
+        },
+        {
+          "achieved_publish_msgs_per_s": 500000.1291000333,
+          "latency_ns": {
+            "max": 711000,
+            "mean": 3017.8433904,
+            "min": 125,
+            "n": 5000000,
+            "p50": 2542,
+            "p90": 5834,
+            "p99": 10541,
+            "p999": 28250,
+            "stdev": 4949.161927317453
+          },
+          "msgs": 2500000,
+          "paced_rate_msgs_per_s": 500000,
+          "per_subscriber": [
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000000250,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000000917,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000000583,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000000875,
+              "lost": 0,
+              "samples": 1250000
+            }
+          ],
+          "producer_elapsed_ns": 4999998709,
+          "sample_stride": 2,
+          "subscribers": 4
+        },
+        {
+          "achieved_publish_msgs_per_s": 500000.0,
+          "latency_ns": {
+            "max": 629834,
+            "mean": 4207.0844368,
+            "min": 84,
+            "n": 10000000,
+            "p50": 3000,
+            "p90": 7917,
+            "p99": 22041,
+            "p999": 88417,
+            "stdev": 6973.619448023376
+          },
+          "msgs": 2500000,
+          "paced_rate_msgs_per_s": 500000,
+          "per_subscriber": [
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000001208,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000003208,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000001041,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000002542,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000001958,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000002625,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000001584,
+              "lost": 0,
+              "samples": 1250000
+            },
+            {
+              "delivered": 2500000,
+              "elapsed_ns": 5000002125,
+              "lost": 0,
+              "samples": 1250000
+            }
+          ],
+          "producer_elapsed_ns": 5000000000,
+          "sample_stride": 2,
+          "subscribers": 8
+        }
+      ],
+      "throughput": [
+        {
+          "msgs": 5000000,
+          "per_subscriber": [
+            {
+              "delivered": 3750003,
+              "effective_delivery_msgs_per_s": 24653156.984117422,
+              "elapsed_ns": 152110458,
+              "lost": 1249997
+            }
+          ],
+          "producer_elapsed_ns": 151228375,
+          "producer_publish_msgs_per_s": 33062578.36864279,
+          "subscribers": 1
+        },
+        {
+          "msgs": 5000000,
+          "per_subscriber": [
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 27602825.701267038,
+              "elapsed_ns": 181140875,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 27601359.090921637,
+              "elapsed_ns": 181150500,
+              "lost": 0
+            }
+          ],
+          "producer_elapsed_ns": 181121125,
+          "producer_publish_msgs_per_s": 27605835.597586975,
+          "subscribers": 2
+        },
+        {
+          "msgs": 5000000,
+          "per_subscriber": [
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 17962622.45550831,
+              "elapsed_ns": 278355792,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 17962662.787574552,
+              "elapsed_ns": 278355167,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 17963590.475089256,
+              "elapsed_ns": 278340792,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 17963249.01040551,
+              "elapsed_ns": 278346083,
+              "lost": 0
+            }
+          ],
+          "producer_elapsed_ns": 278324084,
+          "producer_publish_msgs_per_s": 17964668.842671912,
+          "subscribers": 4
+        },
+        {
+          "msgs": 5000000,
+          "per_subscriber": [
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 12322766.516683318,
+              "elapsed_ns": 405753042,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 12322700.735365545,
+              "elapsed_ns": 405755208,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 12322662.77324414,
+              "elapsed_ns": 405756458,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 12322318.573771868,
+              "elapsed_ns": 405767792,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 12323637.198282702,
+              "elapsed_ns": 405724375,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 12322898.142167343,
+              "elapsed_ns": 405748708,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 12323163.861708775,
+              "elapsed_ns": 405739959,
+              "lost": 0
+            },
+            {
+              "delivered": 5000000,
+              "effective_delivery_msgs_per_s": 12322704.531590551,
+              "elapsed_ns": 405755083,
+              "lost": 0
+            }
+          ],
+          "producer_elapsed_ns": 405703917,
+          "producer_publish_msgs_per_s": 12324258.629230835,
+          "subscribers": 8
+        }
+      ]
+    }
+  },
+  "notes": "In-process fan-out comparison on identical seeded EventGen workloads. Semantics differ BY DESIGN and are published as-is: the seqlock ring and tokio broadcast overwrite the oldest events when a subscriber lags (subscriber is told the loss count); crossbeam-channel fan-out (one bounded(65536) channel per subscriber, producer send()s a copy to each) BLOCKS the producer when any channel is full — backpressure, never loss. Receive modes are each contender's natural usage: ring consumers spin-poll with std::hint::spin_loop (burns a core per subscriber), crossbeam uses blocking recv(), tokio uses recv().await on a multi_thread runtime. All threads stamp and diff ONE process-monotonic clock (flashbook_proto::clock::mono_ns), so cross-thread latency math is sound; threads are unpinned (macOS). Latency phase paces the producer on an absolute schedule (message i at start + i/rate, spin-waited); a blocked crossbeam send makes it catch up in a burst afterwards. Latency samples are per delivered message, stride-sampled deterministically (every ceil(msgs/2M)-th message, capped at 2M per subscriber) and merged across subscribers for the published percentiles (nearest-rank)."
+}

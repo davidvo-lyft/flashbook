@@ -1,0 +1,148 @@
+{
+  "schema": 1,
+  "name": "feed_parse",
+  "created_unix_ms": 1783573833184,
+  "host": {
+    "cpu": "Apple M5 Max",
+    "cores": 18,
+    "mem_gb": 64,
+    "os": "macOS 26.5.1",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+  },
+  "config": {
+    "data": "data/raw",
+    "measured_runs": 5,
+    "quick": false,
+    "warmup_runs": 1,
+    "ws_frame_cap_per_venue": 1000000
+  },
+  "metrics": {
+    "aggregate": {
+      "fast_bytes_per_s": 1148114187.3784904,
+      "fast_events_per_s": 23443368.861998368,
+      "fast_msgs_per_s": 3776236.7833789513,
+      "fast_over_slow": 4.907576554376977,
+      "slow_msgs_per_s": 769470.7849256056
+    },
+    "venues": [
+      {
+        "fast": {
+          "bytes_per_s": 909835449.135145,
+          "events": 10088882,
+          "events_per_s": 23909357.142645545,
+          "fallbacks": 0,
+          "median_run_ns": 421963750,
+          "msgs_per_s": 2369871.8195579597,
+          "parse_errors": 0,
+          "run_ns": [
+            427816334,
+            421963750,
+            416787042,
+            427575542,
+            417030708
+          ]
+        },
+        "fast_over_slow": 3.9796885206371404,
+        "rest_snapshots": 70,
+        "slow": {
+          "bytes_per_s": 228619763.68680283,
+          "events": 10088882,
+          "events_per_s": 6007846.347436685,
+          "fallbacks": 0,
+          "median_run_ns": 1679284292,
+          "msgs_per_s": 595491.7846632248,
+          "parse_errors": 0,
+          "run_ns": [
+            1679284292,
+            1671237292,
+            1678753958,
+            1682773792,
+            1684963000
+          ]
+        },
+        "venue": "coinbase",
+        "ws_frames": 1000000,
+        "ws_payload_bytes": 383917578
+      },
+      {
+        "fast": {
+          "bytes_per_s": 1235359044.6313438,
+          "events": 5906668,
+          "events_per_s": 22735880.21324506,
+          "fallbacks": 0,
+          "median_run_ns": 259795000,
+          "msgs_per_s": 3849188.783463885,
+          "parse_errors": 0,
+          "run_ns": [
+            259904834,
+            260252667,
+            259795000,
+            259730666,
+            258771083
+          ]
+        },
+        "fast_over_slow": 5.268746831155334,
+        "rest_snapshots": 30,
+        "slow": {
+          "bytes_per_s": 234469236.08596575,
+          "events": 5906668,
+          "events_per_s": 4315234.90155239,
+          "fallbacks": 0,
+          "median_run_ns": 1368794083,
+          "msgs_per_s": 730570.0780122381,
+          "parse_errors": 0,
+          "run_ns": [
+            1361910084,
+            1349951875,
+            1379823708,
+            1371315000,
+            1368794083
+          ]
+        },
+        "venue": "binance",
+        "ws_frames": 1000000,
+        "ws_payload_bytes": 320940103
+      },
+      {
+        "fast": {
+          "bytes_per_s": 1839249862.4326138,
+          "events": 2628840,
+          "events_per_s": 23329526.014040206,
+          "fallbacks": 0,
+          "median_run_ns": 112682958,
+          "msgs_per_s": 8874456.419576773,
+          "parse_errors": 0,
+          "run_ns": [
+            112696833,
+            112682958,
+            115708541,
+            112614500,
+            112124875
+          ]
+        },
+        "fast_over_slow": 7.549545557723111,
+        "rest_snapshots": 0,
+        "slow": {
+          "bytes_per_s": 243623917.27685902,
+          "events": 2628840,
+          "events_per_s": 3090189.4472541236,
+          "fallbacks": 0,
+          "median_run_ns": 850705125,
+          "msgs_per_s": 1175495.4456163645,
+          "parse_errors": 0,
+          "run_ns": [
+            849372916,
+            850705125,
+            847956459,
+            852898209,
+            863191584
+          ]
+        },
+        "venue": "kraken",
+        "ws_frames": 1000000,
+        "ws_payload_bytes": 207252115
+      }
+    ]
+  },
+  "notes": "Single-threaded: one codec instance parses one venue's records in capture order. 'msgs/sec/core' means single-thread msgs/s on one P-core equivalent; macOS does not pin threads, the scheduler picks the core. fast = production fast path including its real parse_slow fallback on Structure errors; slow = parse_slow on every frame (the published naive serde_json baseline). REST snapshots are applied identically on both paths and included in run time but excluded from the msgs/s denominator (WS frames only). Differential guarantee: fast and slow event counts asserted equal per venue over the full loaded corpus. Timing: median of measured fresh-codec runs."
+}

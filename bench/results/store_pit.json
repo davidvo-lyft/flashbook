@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "name": "store_pit",
+  "created_unix_ms": 1783577062984,
+  "host": {
+    "cpu": "Apple M5 Max",
+    "cores": 18,
+    "mem_gb": 64,
+    "os": "macOS 26.5.1",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+  },
+  "config": {
+    "block_events": 8192,
+    "events": 226404844,
+    "quick": false,
+    "store": "data/store/full.fbstore",
+    "store_bytes": 2061064364,
+    "threads": 1,
+    "zstd_level": 3
+  },
+  "metrics": {
+    "anchor_hit_rate": 0.927,
+    "anchor_hits": 927,
+    "index_source": "sidecar",
+    "latency_ns": {
+      "max": 3637137250,
+      "mean": 394416249.082,
+      "min": 42,
+      "n": 1000,
+      "p50": 111646625,
+      "p90": 1364126209,
+      "p99": 3267488167,
+      "p999": 3617686750,
+      "stdev": 710670232.4531461
+    },
+    "queries": 1000,
+    "snapshots_indexed": 691
+  },
+  "notes": "1000 seeded-random (instrument, t) queries (seed 0xf1a5b00c), t uniform over the store's recv_mono span, instruments uniform over the 16 seen. Each query = SnapshotIndex::latest_at + pit_scan folded into an unbounded LadderBook (top-of-book out). Percentiles cover ALL queries; anchor misses (no complete snapshot at or before t) are timed as the near-free lookups they are, and the hit rate is published alongside."
+}

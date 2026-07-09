@@ -1,0 +1,106 @@
+{
+  "schema": 1,
+  "name": "store_compare",
+  "created_unix_ms": 1783577640584,
+  "host": {
+    "cpu": "Apple M5 Max",
+    "cores": 18,
+    "mem_gb": 64,
+    "os": "macOS 26.5.1",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+  },
+  "config": {
+    "block_events": 8192,
+    "events": 226404844,
+    "quick": false,
+    "store": "data/store/full.fbstore",
+    "store_bytes": 2061064364,
+    "threads": 1,
+    "zstd_level": 3
+  },
+  "metrics": {
+    "full_scan_seconds": {
+      "duckdb": [
+        0.324418,
+        0.186740042,
+        0.193471042
+      ],
+      "mean_duckdb": 0.2348763613333333,
+      "mean_ours": 9.872809333333334,
+      "mean_sqlite": 36.575249528,
+      "ours": [
+        9.86048,
+        9.8468665,
+        9.9110815
+      ],
+      "sqlite": [
+        41.879912959,
+        34.0733945,
+        33.772441125
+      ]
+    },
+    "load_seconds": {
+      "duckdb_appender": 96.346917541,
+      "sqlite_tx_insert_index_analyze": 162.648853167
+    },
+    "parity": {
+      "failures": [],
+      "full_scan_equal": true,
+      "pit_anchor_divergences": 0,
+      "pit_anchor_hits": 186,
+      "pit_queries": 200,
+      "pit_tops_equal": true
+    },
+    "parquet_write_seconds": 6.7052745,
+    "pit_latency_ns": {
+      "duckdb": {
+        "max": 1084851375,
+        "mean": 118548525.62,
+        "min": 3332084,
+        "n": 200,
+        "p50": 43934500,
+        "p90": 298032291,
+        "p99": 959445000,
+        "p999": 1084851375,
+        "stdev": 190579656.8419466
+      },
+      "ours": {
+        "max": 3230705792,
+        "mean": 373096822.265,
+        "min": 250,
+        "n": 200,
+        "p50": 119443541,
+        "p90": 1328695250,
+        "p99": 2474457416,
+        "p999": 3230705792,
+        "stdev": 630932563.285759
+      },
+      "sqlite": {
+        "max": 4393070667,
+        "mean": 365423814.375,
+        "min": 1160041,
+        "n": 200,
+        "p50": 85704500,
+        "p90": 1101465042,
+        "p99": 3718010875,
+        "p999": 4393070667,
+        "stdev": 718890975.567257
+      }
+    },
+    "sizes_bytes": {
+      "duckdb": 5861814272,
+      "ours_snapidx": 13840,
+      "ours_store": 2061064364,
+      "ours_total": 2061078204,
+      "parquet_zstd": 2143484948,
+      "raw_json": 14095629974,
+      "sqlite": 16180383744
+    },
+    "winners": {
+      "full_scan": "duckdb",
+      "pit_p50": "duckdb",
+      "smallest_size": "ours"
+    }
+  },
+  "notes": "Identical events loaded into DuckDB (Appender, no index) and SQLite (single tx + prepared INSERT; load-only pragmas journal_mode=MEMORY, synchronous=OFF; then CREATE INDEX idx_inst_mono + ANALYZE, charged to load). Parquet via DuckDB COPY (FORMAT PARQUET, COMPRESSION ZSTD). Full-scan aggregate and PIT top-of-book asserted EQUAL across backends before any timing is quoted; SQL PIT folds from ours' validated anchor when the naive kind=4 anchor picks an incomplete snapshot (divergences published). Losses are reported as plainly as wins — see winners."
+}

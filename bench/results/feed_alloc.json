@@ -1,0 +1,103 @@
+{
+  "schema": 1,
+  "name": "feed_alloc",
+  "created_unix_ms": 1783578243535,
+  "host": {
+    "cpu": "Apple M5 Max",
+    "cores": 18,
+    "mem_gb": 64,
+    "os": "macOS 26.5.1",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+  },
+  "config": {
+    "allocator": "dhat 0.3 (testing profiler)",
+    "data": "data/raw",
+    "sample_ws_frames_per_venue": 10000
+  },
+  "metrics": {
+    "venues": [
+      {
+        "paths": {
+          "fast": {
+            "blocks_per_frame": 0.0002,
+            "bytes_per_frame": 0.0192,
+            "events": 202255,
+            "fallbacks": 0,
+            "parse_errors": 0,
+            "rest_snapshots": 0,
+            "total_blocks": 2,
+            "total_bytes": 192,
+            "ws_frames": 10000
+          },
+          "slow": {
+            "blocks_per_frame": 80.9608,
+            "bytes_per_frame": 5391.4081,
+            "events": 202255,
+            "fallbacks": 0,
+            "parse_errors": 0,
+            "rest_snapshots": 0,
+            "total_blocks": 809608,
+            "total_bytes": 53914081,
+            "ws_frames": 10000
+          }
+        },
+        "venue": "coinbase"
+      },
+      {
+        "paths": {
+          "fast": {
+            "blocks_per_frame": 3.011,
+            "bytes_per_frame": 216.4236,
+            "events": 66281,
+            "fallbacks": 0,
+            "parse_errors": 0,
+            "rest_snapshots": 5,
+            "total_blocks": 30110,
+            "total_bytes": 2164236,
+            "ws_frames": 10000
+          },
+          "slow": {
+            "blocks_per_frame": 35.8181,
+            "bytes_per_frame": 2698.1716,
+            "events": 66281,
+            "fallbacks": 0,
+            "parse_errors": 0,
+            "rest_snapshots": 5,
+            "total_blocks": 358181,
+            "total_bytes": 26981716,
+            "ws_frames": 10000
+          }
+        },
+        "venue": "binance"
+      },
+      {
+        "paths": {
+          "fast": {
+            "blocks_per_frame": 0.0,
+            "bytes_per_frame": 0.0,
+            "events": 27638,
+            "fallbacks": 0,
+            "parse_errors": 0,
+            "rest_snapshots": 0,
+            "total_blocks": 0,
+            "total_bytes": 0,
+            "ws_frames": 10000
+          },
+          "slow": {
+            "blocks_per_frame": 3.9946,
+            "bytes_per_frame": 842.0059,
+            "events": 27638,
+            "fallbacks": 0,
+            "parse_errors": 0,
+            "rest_snapshots": 0,
+            "total_blocks": 39946,
+            "total_bytes": 8420059,
+            "ws_frames": 10000
+          }
+        },
+        "venue": "kraken"
+      }
+    ]
+  },
+  "notes": "dhat heap deltas around one measured pass per (venue, path). The measured pass uses a FRESH codec (a warmup pass on a separate codec instance amortizes only the shared Event out-buffer), so one-time per-codec lazy allocations — per-symbol state, internal scratch on first use, error/fallback paths — land inside the window and are averaged over the 10k-frame sample. Steady-state target for the fast path is 0 allocations/frame; the numbers here are the real measured deltas, whatever they are. REST snapshot records are parsed in-position on both paths and included in the deltas: the Binance fast-path delta is dominated by parse_rest_snapshot, which parses the depth body via serde_json::Value on BOTH paths by design (rest_snapshots is reported per pass so this is attributable); Coinbase's tiny fast-path residue is one-time per-codec state growth. Kraken (no REST resync in-sample) is the pure WS-frame fast path."
+}

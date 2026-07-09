@@ -1,0 +1,95 @@
+{
+  "schema": 1,
+  "name": "e2e_net",
+  "created_unix_ms": 1783577879568,
+  "host": {
+    "cpu": "Apple M5 Max",
+    "cores": 18,
+    "mem_gb": 64,
+    "os": "macOS 26.5.1",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+  },
+  "config": {
+    "events": 6000000,
+    "quick": false,
+    "secs": 30,
+    "seed": 3806353318,
+    "subs": 4,
+    "target_rate_per_sec": 200000
+  },
+  "metrics": {
+    "achieved_rate_per_sec": 89588.1035753718,
+    "elapsed_ns": 66973177917,
+    "merged_latency_ns": {
+      "max": 1477750,
+      "mean": 18617.90711165909,
+      "min": 4125,
+      "n": 7998668,
+      "p50": 17417,
+      "p90": 27958,
+      "p99": 40167,
+      "p999": 56000,
+      "stdev": 7575.005475502297
+    },
+    "per_sub": [
+      {
+        "delivered": 6000000,
+        "latency_ns": {
+          "max": 1471791,
+          "mean": 20031.57745064553,
+          "min": 7166,
+          "n": 1999667,
+          "p50": 18750,
+          "p90": 28792,
+          "p99": 40583,
+          "p999": 57125,
+          "stdev": 8005.567369683698
+        }
+      },
+      {
+        "delivered": 6000000,
+        "latency_ns": {
+          "max": 405000,
+          "mean": 14444.7455231296,
+          "min": 4125,
+          "n": 1999667,
+          "p50": 13000,
+          "p90": 22792,
+          "p99": 33625,
+          "p999": 48458,
+          "stdev": 6063.274538251829
+        }
+      },
+      {
+        "delivered": 6000000,
+        "latency_ns": {
+          "max": 1477750,
+          "mean": 22770.87901435589,
+          "min": 8959,
+          "n": 1999667,
+          "p50": 21459,
+          "p90": 31875,
+          "p99": 44208,
+          "p999": 61167,
+          "stdev": 7022.425172314734
+        }
+      },
+      {
+        "delivered": 6000000,
+        "latency_ns": {
+          "max": 1470041,
+          "mean": 17224.426458505342,
+          "min": 5792,
+          "n": 1999667,
+          "p50": 15875,
+          "p90": 25709,
+          "p99": 36917,
+          "p999": 52291,
+          "stdev": 6383.833552988172
+        }
+      }
+    ],
+    "sustained": false
+  },
+  "notes": "LIMITATIONS: loopback TCP is NOT a NIC. This measures kernel network-stack + syscall + scheduler-handoff cost on one host: no wire serialization, no propagation, no NIC interrupt/coalescing behavior. Treat as a floor for cross-machine fan-out latency. Method: publisher paces on an absolute schedule (event i at start+i/rate), stamps recv_mono_ns once immediately before the first subscriber write, then write(2)s the raw 64B Event (length-implicit framing, no batching) to each subscriber in turn — later subscribers include fan-out serialization. Subscribers stamp after read_exact(64) completes. All stamps share one process-monotonic clock; threads unpinned (macOS). First 1000 events per subscriber excluded as warmup; stride sampling (stride 3, cap 2000000/sub). If the schedule slips, the ACHIEVED rate is reported and sustained=false."
+}

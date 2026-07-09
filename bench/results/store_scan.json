@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "name": "store_scan",
+  "created_unix_ms": 1783576668524,
+  "host": {
+    "cpu": "Apple M5 Max",
+    "cores": 18,
+    "mem_gb": 64,
+    "os": "macOS 26.5.1",
+    "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+  },
+  "config": {
+    "block_events": 8192,
+    "events": 226404844,
+    "quick": false,
+    "store": "data/store/full.fbstore",
+    "store_bytes": 2061064364,
+    "threads": 1,
+    "zstd_level": 3
+  },
+  "metrics": {
+    "events": 226404844,
+    "events_per_s": [
+      27847775.578251828,
+      27897338.429147817,
+      27980585.568992414,
+      26819205.08061362,
+      27639756.767516583
+    ],
+    "gb_per_s_logical": [
+      1.782257637008117,
+      1.7854296594654604,
+      1.7907574764155145,
+      1.7164291251592718,
+      1.7689444331210613
+    ],
+    "gb_per_s_physical": [
+      0.2535107325751578,
+      0.2539619253321466,
+      0.25471976120839057,
+      0.24414719617244798,
+      0.25161704447965016
+    ],
+    "mean_events_per_s": 27636932.28490445,
+    "mean_gb_per_s_logical": 1.768763666233885,
+    "mean_gb_per_s_physical": 0.25159133195355865,
+    "pass_seconds": [
+      8.130087208,
+      8.115643167,
+      8.091497708,
+      8.441892417,
+      8.191274833
+    ]
+  },
+  "notes": "Sequential decode of every block via StoreReader::scan (mmap, per-block CRC + column decode), 1 warmup + 5 measured passes. Logical GB/s = events * 64 B / s; physical GB/s = file bytes / s."
+}

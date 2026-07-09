@@ -119,13 +119,13 @@ def pending(*names):
 def quick_badge(d):
     cfg = d.get("config") or {}
     quick = isinstance(cfg, dict) and cfg.get("quick")
-    if quick or "QUICK" in d.get("notes", ""):
+    if quick or "QUICK" in str(d.get("notes", "")):
         return " — **QUICK/smoke run, not official numbers**"
     return ""
 
 
 def notes_quote(d):
-    n = (d.get("notes") or "").strip().replace("\n", " ")
+    n = str(d.get("notes") or "").strip().replace("\n", " ")
     return ["> **Producer notes (verbatim):** " + n, ""] if n else []
 
 
@@ -207,7 +207,7 @@ def sec_provenance(files, warnings):
               .strftime("%Y-%m-%d %H:%M:%SZ") if created else "—")
         cfg = d.get("config") or {}
         quick = "yes" if (isinstance(cfg, dict) and cfg.get("quick")) else \
-                ("yes (notes)" if "QUICK" in d.get("notes", "") else "—")
+                ("yes (notes)" if "QUICK" in str(d.get("notes", "")) else "—")
         rows.append([f"`{stem}.json`", ts, h.get("cpu", "—"), h.get("cores", "—"),
                      h.get("mem_gb", "—"), h.get("os", "—"), h.get("rustc", "—"), quick])
     L += md_table(["file", "created (UTC)", "cpu", "cores", "mem (GB)", "os", "rustc", "quick"], rows)
@@ -222,7 +222,7 @@ def sec_provenance(files, warnings):
             L.append(f"- **FLAGGED — `host.{field}` inconsistent across result files:** {', '.join(vals)}")
     quick_n = sum(1 for d in files.values()
                   if (isinstance(d.get("config"), dict) and d["config"].get("quick"))
-                  or "QUICK" in d.get("notes", ""))
+                  or "QUICK" in str(d.get("notes", "")))
     if quick_n:
         L.append(f"- **WARNING: {quick_n} of {len(files)} input files are QUICK/smoke runs — "
                  "numbers below are not official until replaced by full runs.**")
@@ -570,7 +570,7 @@ def sec_other(files):
             desc = "not a ResultFile; top-level keys: " + ", ".join(sorted(d))
         else:
             desc = "not a JSON object"
-        notes = (d.get("notes") or "").strip() if isinstance(d, dict) else ""
+        notes = str(d.get("notes") or "").strip() if isinstance(d, dict) else ""
         L.append(f"- `{k}.json` — {desc}." + (f" Notes: {notes[:300]}" if notes else ""))
     L.append("")
     return L
