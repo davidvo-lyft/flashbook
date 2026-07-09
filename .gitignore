@@ -10,7 +10,6 @@ out/
 /data/tmp/
 /ops/soak/*.log
 /ops/soak/*.pid
-/ops/soak/stats.jsonl
 dhat-heap.json
 perf.data*
 flamegraph*.svg
