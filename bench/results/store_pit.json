@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "store_pit",
-  "created_unix_ms": 1783577062984,
+  "created_unix_ms": 1783613168947,
   "host": {
     "cpu": "Apple M5 Max",
     "cores": 18,
@@ -13,8 +13,8 @@
     "block_events": 8192,
     "events": 226404844,
     "quick": false,
-    "store": "data/store/full.fbstore",
-    "store_bytes": 2061064364,
+    "store": "data/store/full-v2.fbstore",
+    "store_bytes": 2062280436,
     "threads": 1,
     "zstd_level": 3
   },
@@ -23,15 +23,15 @@
     "anchor_hits": 927,
     "index_source": "sidecar",
     "latency_ns": {
-      "max": 3637137250,
-      "mean": 394416249.082,
+      "max": 3632703667,
+      "mean": 396584787.577,
       "min": 42,
       "n": 1000,
-      "p50": 111646625,
-      "p90": 1364126209,
-      "p99": 3267488167,
-      "p999": 3617686750,
-      "stdev": 710670232.4531461
+      "p50": 112292583,
+      "p90": 1387104125,
+      "p99": 3260948834,
+      "p999": 3591777042,
+      "stdev": 715915929.7433511
     },
     "queries": 1000,
     "snapshots_indexed": 691

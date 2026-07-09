@@ -36,17 +36,17 @@ Each table cites its source file inline.
 | file | created (UTC) | cpu | cores | mem (GB) | os | rustc | quick |
 |---|---|---|---|---|---|---|---|
 | `bus_fanout.json` | 2026-07-09 06:16:16Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
-| `e2e_live.json` | 2026-07-09 06:22:59Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
-| `e2e_net.json` | 2026-07-09 06:17:59Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
-| `e2e_rtt.json` | 2026-07-09 06:22:59Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
+| `e2e_live.json` | 2026-07-09 16:22:39Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
+| `e2e_net.json` | 2026-07-09 16:17:36Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
+| `e2e_rtt.json` | 2026-07-09 16:22:39Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
 | `feed_alloc.json` | 2026-07-09 06:24:03Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
 | `feed_parse.json` | 2026-07-09 05:10:33Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
 | `lob_replay.json` | 2026-07-09 05:15:48Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
 | `replay_verify_full.json` | — | — | — | — | — | — | — |
-| `store_compare.json` | 2026-07-09 06:14:00Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
-| `store_pit.json` | 2026-07-09 06:04:22Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
-| `store_scan.json` | 2026-07-09 05:57:48Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
-| `store_write.json` | 2026-07-09 05:56:59Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
+| `store_compare.json` | 2026-07-09 16:15:45Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
+| `store_pit.json` | 2026-07-09 16:06:08Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
+| `store_scan.json` | 2026-07-09 15:59:32Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
+| `store_write.json` | 2026-07-09 15:58:40Z | Apple M5 Max | 18 | 64 | macOS 26.5.1 | rustc 1.96.1 (31fca3adb 2026-06-26) | — |
 
 - **FLAGGED:** `replay_verify_full.json` has no `host` object — not a ResultFile; excluded from host-consistency checks.
 - **FLAGGED:** `replay_verify_full.json`: schema None != 1 — renderer targets schema 1
@@ -110,8 +110,8 @@ Timer-overhead calibration: each sample includes one `Instant::now()/elapsed()` 
 
 | mode | events/s | logical MB/s | bytes/event | stored bytes | zstd level |
 |---|---|---|---|---|---|
-| raw | 40.19 M/s | 2,572 MB/s | 20.34 B | 4.29 GiB (4,605,379,366 B) | — |
-| zstd | 15.69 M/s | 1,004 MB/s | 9.10 B | 1.92 GiB (2,061,064,275 B) | 3 |
+| raw | 38.92 M/s | 2,491 MB/s | 20.35 B | 4.29 GiB (4,606,595,438 B) | — |
+| zstd | 15.19 M/s | 972 MB/s | 9.11 B | 1.92 GiB (2,062,280,347 B) | 3 |
 
 *src: `store_write.json`*
 
@@ -121,12 +121,12 @@ Timer-overhead calibration: each sample includes one `Instant::now()/elapsed()` 
 
 | pass | seconds | events/s | logical GB/s | physical GB/s |
 |---|---|---|---|---|
-| pass 1 | 8.13 s | 27.85 M/s | 1.78 GB/s | 0.254 GB/s |
-| pass 2 | 8.116 s | 27.90 M/s | 1.79 GB/s | 0.254 GB/s |
-| pass 3 | 8.091 s | 27.98 M/s | 1.79 GB/s | 0.255 GB/s |
-| pass 4 | 8.442 s | 26.82 M/s | 1.72 GB/s | 0.244 GB/s |
-| pass 5 | 8.191 s | 27.64 M/s | 1.77 GB/s | 0.252 GB/s |
-| **mean** | — | **27.64 M/s** | **1.77 GB/s** | **0.252 GB/s** |
+| pass 1 | 8.607 s | 26.31 M/s | 1.68 GB/s | 0.24 GB/s |
+| pass 2 | 8.475 s | 26.72 M/s | 1.71 GB/s | 0.243 GB/s |
+| pass 3 | 8.54 s | 26.51 M/s | 1.7 GB/s | 0.241 GB/s |
+| pass 4 | 8.582 s | 26.38 M/s | 1.69 GB/s | 0.24 GB/s |
+| pass 5 | 8.515 s | 26.59 M/s | 1.7 GB/s | 0.242 GB/s |
+| **mean** | — | **26.50 M/s** | **1.7 GB/s** | **0.241 GB/s** |
 
 226,404,844 events scanned. *src: `store_scan.json`*
 
@@ -136,7 +136,7 @@ Timer-overhead calibration: each sample includes one `Instant::now()/elapsed()` 
 
 | queries | n | min | p50 | p90 | p99 | p999 | max | mean |
 |---|---|---|---|---|---|---|---|---|
-| 1,000 | 1,000 | 42 ns | 111.65 ms (111,646,625 ns) | 1.364 s | 3.267 s (3,267,488,167 ns) | 3.618 s | 3.637 s | 394.42 ms |
+| 1,000 | 1,000 | 42 ns | 112.29 ms (112,292,583 ns) | 1.387 s | 3.261 s (3,260,948,834 ns) | 3.592 s | 3.633 s | 396.58 ms |
 
 Anchor hit rate 93% (927/1,000); 691 snapshots indexed (index source: sidecar). Misses are timed as the near-free lookups they are. *src: `store_pit.json`*
 
@@ -148,13 +148,13 @@ Identical 226,404,844 events in every backend. Raw-JSON baseline 13.13 GiB (14,0
 
 | metric | ours (fbstore) | DuckDB | SQLite | Parquet-zstd | better |
 |---|---|---|---|---|---|
-| load seconds | — | 96.347 s | 162.649 s | **6.705 s** | lower |
-| on-disk bytes | **1.92 GiB (2,061,078,204 B)** | 5.46 GiB (5,861,814,272 B) | 15.07 GiB (16,180,383,744 B) | 2.00 GiB (2,143,484,948 B) | lower |
-| bytes/event | **9.10 B** | 25.89 B | 71.47 B | 9.47 B | lower |
-| ratio vs raw JSON | **6.84× smaller** | 2.40× smaller | 0.87× — LARGER than raw JSON | 6.58× smaller | higher |
-| full-scan seconds | 9.873 s | **234.9 ms** | 36.575 s | — | lower |
-| PIT p50 | 119.44 ms (119,443,541 ns) | **43.93 ms (43,934,500 ns)** | 85.70 ms (85,704,500 ns) | — | lower |
-| PIT p99 | 2.474 s (2,474,457,416 ns) | **959.45 ms (959,445,000 ns)** | 3.718 s (3,718,010,875 ns) | — | lower |
+| load seconds | — | 94.273 s | 161.541 s | **6.105 s** | lower |
+| on-disk bytes | **1.92 GiB (2,062,294,276 B)** | 5.46 GiB (5,861,814,272 B) | 15.07 GiB (16,180,383,744 B) | 2.00 GiB (2,143,484,948 B) | lower |
+| bytes/event | **9.11 B** | 25.89 B | 71.47 B | 9.47 B | lower |
+| ratio vs raw JSON | **6.83× smaller** | 2.40× smaller | 0.87× — LARGER than raw JSON | 6.58× smaller | higher |
+| full-scan seconds | 7.125 s | **188.7 ms** | 40.344 s | — | lower |
+| PIT p50 | 118.97 ms (118,972,334 ns) | **42.90 ms (42,896,416 ns)** | 85.88 ms (85,879,125 ns) | — | lower |
+| PIT p99 | 2.539 s (2,539,132,417 ns) | **897.13 ms (897,132,416 ns)** | 3.518 s (3,518,131,915 ns) | — | lower |
 
 Notes on blanks: ours' load is the capture-time ingest (see `store_write.json` for encode cost); Parquet is written via DuckDB COPY and has no scan/PIT harness in this result file.
 
@@ -162,9 +162,9 @@ Full PIT latency percentiles per backend:
 
 | backend | n | min | p50 | p90 | p99 | p999 | max | mean |
 |---|---|---|---|---|---|---|---|---|
-| duckdb | 200 | 3.33 ms | 43.93 ms (43,934,500 ns) | 298.03 ms | 959.45 ms (959,445,000 ns) | 1.085 s | 1.085 s | 118.55 ms |
-| ours | 200 | 250 ns | 119.44 ms (119,443,541 ns) | 1.329 s | 2.474 s (2,474,457,416 ns) | 3.231 s | 3.231 s | 373.10 ms |
-| sqlite | 200 | 1.16 ms | 85.70 ms (85,704,500 ns) | 1.101 s | 3.718 s (3,718,010,875 ns) | 4.393 s | 4.393 s | 365.42 ms |
+| duckdb | 200 | 3.17 ms | 42.90 ms (42,896,416 ns) | 262.04 ms | 897.13 ms (897,132,416 ns) | 987.25 ms | 987.25 ms | 110.50 ms |
+| ours | 200 | 167 ns | 118.97 ms (118,972,334 ns) | 1.326 s | 2.539 s (2,539,132,417 ns) | 3.220 s | 3.220 s | 372.35 ms |
+| sqlite | 200 | 1.08 ms | 85.88 ms (85,879,125 ns) | 1.194 s | 3.518 s (3,518,131,915 ns) | 4.273 s | 4.273 s | 371.51 ms |
 
 Parity before timing: full_scan_equal=true, pit_tops_equal=true, anchor hits 186/200, divergences 0, failures [].
 Result file's own `winners` field (wins and losses, plainly): full_scan → **duckdb**, pit_p50 → **duckdb**, smallest_size → **ours**.
@@ -217,15 +217,15 @@ Result file's own `winners` field (wins and losses, plainly): full_scan → **du
 
 > **LOOPBACK IS NOT A NIC.** This measures kernel network-stack + syscall + scheduler-handoff cost on one host: no wire serialization, no propagation, no NIC interrupt/coalescing behavior. Treat as a floor for cross-machine fan-out latency. (Caveat restated from the result file's own notes, quoted in full below.)
 
-**Sustained: NO — the pacing schedule slipped; the ACHIEVED rate 89.6 k/s is what the latencies below were measured at, not the 200.0 k/s target.** (4 subscribers, 6,000,000 events, elapsed 66.973 s). *src: `e2e_net.json`*
+**Sustained: NO — the pacing schedule slipped; the ACHIEVED rate 96.9 k/s is what the latencies below were measured at, not the 200.0 k/s target.** (4 subscribers, 6,000,000 events, elapsed 61.918 s). *src: `e2e_net.json`*
 
 | stream | delivered | n | min | p50 | p90 | p99 | p999 | max | mean |
 |---|---|---|---|---|---|---|---|---|---|
-| merged (all subs) | — | 7,998,668 | 4.12 µs | 17.42 µs (17,417 ns) | 27.96 µs | 40.17 µs (40,167 ns) | 56.00 µs | 1.48 ms | 18.62 µs |
-| sub 0 | 6,000,000 | 1,999,667 | 7.17 µs | 18.75 µs (18,750 ns) | 28.79 µs | 40.58 µs (40,583 ns) | 57.12 µs | 1.47 ms | 20.03 µs |
-| sub 1 | 6,000,000 | 1,999,667 | 4.12 µs | 13.00 µs (13,000 ns) | 22.79 µs | 33.62 µs (33,625 ns) | 48.46 µs | 405.00 µs | 14.44 µs |
-| sub 2 | 6,000,000 | 1,999,667 | 8.96 µs | 21.46 µs (21,459 ns) | 31.88 µs | 44.21 µs (44,208 ns) | 61.17 µs | 1.48 ms | 22.77 µs |
-| sub 3 | 6,000,000 | 1,999,667 | 5.79 µs | 15.88 µs (15,875 ns) | 25.71 µs | 36.92 µs (36,917 ns) | 52.29 µs | 1.47 ms | 17.22 µs |
+| merged (all subs) | — | 7,998,668 | 4.29 µs | 14.25 µs (14,250 ns) | 21.17 µs | 42.21 µs (42,209 ns) | 1.51 ms | 10.90 ms | 19.88 µs |
+| sub 0 | 6,000,000 | 1,999,667 | 5.71 µs | 12.50 µs (12,500 ns) | 18.62 µs | 39.25 µs (39,250 ns) | 1.37 ms | 10.89 ms | 18.40 µs |
+| sub 1 | 6,000,000 | 1,999,667 | 8.83 µs | 17.54 µs (17,541 ns) | 24.25 µs | 47.12 µs (47,125 ns) | 1.62 ms | 10.90 ms | 23.99 µs |
+| sub 2 | 6,000,000 | 1,999,667 | 4.29 µs | 10.04 µs (10,042 ns) | 15.71 µs | 35.75 µs (35,750 ns) | 1.44 ms | 10.89 ms | 15.83 µs |
+| sub 3 | 6,000,000 | 1,999,667 | 7.25 µs | 15.04 µs (15,041 ns) | 21.46 µs | 43.21 µs (43,209 ns) | 1.64 ms | 10.90 ms | 21.32 µs |
 
 *src: `e2e_net.json`*
 
@@ -241,53 +241,53 @@ Result file's own `winners` field (wins and losses, plainly): full_scan → **du
 
 | stage | n | min | p50 | p90 | p99 | p999 | max | mean |
 |---|---|---|---|---|---|---|---|---|
-| parse | 48,003 | 0 ns | 209 ns | 1.00 µs | 2.62 µs (2,625 ns) | 10.67 µs | 1.28 ms | 467 ns |
-| publish | 45,009 | 0 ns | 125 ns | 375 ns | 2.58 µs (2,583 ns) | 4.62 µs | 181.17 µs | 233 ns |
-| deliver | 213,904 | 0 ns | 1.17 µs (1,167 ns) | 555.54 µs | 1.05 ms (1,051,875 ns) | 1.10 ms | 1.10 ms | 114.35 µs |
-| deliver (steady) | 170,894 | 0 ns | 791 ns | 8.00 µs | 33.12 µs (33,125 ns) | 77.08 µs | 1.10 ms | 3.31 µs |
-| total added | 213,904 | 125 ns | 3.42 µs (3,416 ns) | 2.02 ms | 2.52 ms (2,517,459 ns) | 2.56 ms | 2.57 ms | 409.16 µs |
-| total added (steady) | 170,894 | 125 ns | 2.29 µs (2,292 ns) | 13.17 µs | 34.46 µs (34,458 ns) | 82.83 µs | 1.10 ms | 5.12 µs |
+| parse | 66,397 | 0 ns | 167 ns | 1.54 µs | 3.83 µs (3,833 ns) | 11.58 µs | 1.27 ms | 552 ns |
+| publish | 63,394 | 0 ns | 125 ns | 334 ns | 1.00 µs (1,000 ns) | 4.17 µs | 182.88 µs | 188 ns |
+| deliver | 291,551 | 0 ns | 958 ns | 364.83 µs | 1.03 ms (1,026,250 ns) | 1.09 ms | 8.03 ms | 83.96 µs |
+| deliver (steady) | 248,414 | 0 ns | 750 ns | 3.33 µs | 15.71 µs (15,708 ns) | 156.50 µs | 8.03 ms | 2.75 µs |
+| total added | 291,551 | 125 ns | 3.08 µs (3,083 ns) | 1.81 ms | 2.48 ms (2,477,041 ns) | 2.54 ms | 8.03 ms | 299.86 µs |
+| total added (steady) | 248,414 | 125 ns | 2.25 µs (2,250 ns) | 10.00 µs | 23.38 µs (23,375 ns) | 160.75 µs | 8.03 ms | 5.21 µs |
 
 **binance**
 
 | stage | n | min | p50 | p90 | p99 | p999 | max | mean |
 |---|---|---|---|---|---|---|---|---|
-| parse | 11,402 | 41 ns | 125 ns | 1.21 µs | 4.00 µs (4,000 ns) | 15.12 µs | 31.12 µs | 532 ns |
-| publish | 8,412 | 0 ns | 83 ns | 209 ns | 500 ns | 3.17 µs | 5.58 µs | 115 ns |
-| deliver | 8,412 | 0 ns | 167 ns | 17.58 µs | 42.54 µs (42,542 ns) | 241.75 µs | 243.29 µs | 5.32 µs |
-| deliver (steady) | 8,412 | 0 ns | 167 ns | 17.58 µs | 42.54 µs (42,542 ns) | 241.75 µs | 243.29 µs | 5.32 µs |
-| total added | 8,412 | 125 ns | 583 ns | 17.83 µs | 43.04 µs (43,041 ns) | 241.88 µs | 243.71 µs | 5.64 µs |
-| total added (steady) | 8,412 | 125 ns | 583 ns | 17.83 µs | 43.04 µs (43,041 ns) | 241.88 µs | 243.71 µs | 5.64 µs |
+| parse | 15,662 | 41 ns | 125 ns | 1.75 µs | 5.42 µs (5,417 ns) | 17.92 µs | 29.46 µs | 593 ns |
+| publish | 12,663 | 0 ns | 83 ns | 167 ns | 417 ns | 3.17 µs | 10.83 µs | 103 ns |
+| deliver | 12,663 | 0 ns | 83 ns | 2.71 µs | 20.62 µs (20,625 ns) | 224.71 µs | 227.71 µs | 1.72 µs |
+| deliver (steady) | 12,663 | 0 ns | 83 ns | 2.71 µs | 20.62 µs (20,625 ns) | 224.71 µs | 227.71 µs | 1.72 µs |
+| total added | 12,663 | 125 ns | 292 ns | 3.08 µs | 21.12 µs (21,125 ns) | 224.83 µs | 230.71 µs | 2.04 µs |
+| total added (steady) | 12,663 | 125 ns | 292 ns | 3.08 µs | 21.12 µs (21,125 ns) | 224.83 µs | 230.71 µs | 2.04 µs |
 
 **coinbase**
 
 | stage | n | min | p50 | p90 | p99 | p999 | max | mean |
 |---|---|---|---|---|---|---|---|---|
-| parse | 6,719 | 125 ns | 875 ns | 1.79 µs | 4.62 µs (4,625 ns) | 9.00 µs | 1.28 ms | 1.26 µs |
-| publish | 6,718 | 0 ns | 291 ns | 959 ns | 3.46 µs (3,458 ns) | 6.17 µs | 181.17 µs | 543 ns |
-| deliver | 125,559 | 0 ns | 2.71 µs (2,708 ns) | 768.67 µs | 1.07 ms (1,073,791 ns) | 1.10 ms | 1.10 ms | 192.62 µs |
-| deliver (steady) | 82,752 | 0 ns | 1.00 µs (1,000 ns) | 8.83 µs | 30.79 µs (30,792 ns) | 69.96 µs | 1.10 ms | 3.51 µs |
-| total added | 125,559 | 250 ns | 8.21 µs (8,208 ns) | 2.23 ms | 2.54 ms (2,539,375 ns) | 2.57 ms | 2.57 ms | 694.50 µs |
-| total added (steady) | 82,752 | 250 ns | 3.96 µs (3,958 ns) | 15.50 µs | 32.88 µs (32,875 ns) | 71.17 µs | 1.10 ms | 6.76 µs |
+| parse | 8,528 | 84 ns | 1.17 µs (1,167 ns) | 2.83 µs | 7.25 µs (7,250 ns) | 15.04 µs | 1.27 ms | 1.63 µs |
+| publish | 8,527 | 0 ns | 250 ns | 708 ns | 3.04 µs (3,042 ns) | 5.50 µs | 182.88 µs | 377 ns |
+| deliver | 169,317 | 0 ns | 1.75 µs (1,750 ns) | 661.58 µs | 1.05 ms (1,054,625 ns) | 1.09 ms | 7.39 ms | 143.07 µs |
+| deliver (steady) | 126,383 | 0 ns | 1.21 µs (1,208 ns) | 4.29 µs | 16.50 µs (16,500 ns) | 82.21 µs | 7.39 ms | 3.41 µs |
+| total added | 169,317 | 208 ns | 6.79 µs (6,792 ns) | 2.11 ms | 2.51 ms (2,505,666 ns) | 2.54 ms | 7.39 ms | 514.47 µs |
+| total added (steady) | 126,383 | 208 ns | 4.75 µs (4,750 ns) | 13.33 µs | 26.29 µs (26,292 ns) | 93.42 µs | 7.39 ms | 7.77 µs |
 
 **kraken**
 
 | stage | n | min | p50 | p90 | p99 | p999 | max | mean |
 |---|---|---|---|---|---|---|---|---|
-| parse | 29,882 | 0 ns | 208 ns | 417 ns | 1.12 µs (1,125 ns) | 3.54 µs | 29.38 µs | 265 ns |
-| publish | 29,879 | 0 ns | 125 ns | 334 ns | 1.83 µs (1,833 ns) | 4.29 µs | 137.08 µs | 196 ns |
-| deliver | 79,933 | 0 ns | 541 ns | 6.50 µs | 33.67 µs (33,667 ns) | 74.42 µs | 166.17 µs | 2.90 µs |
-| deliver (steady) | 79,730 | 0 ns | 541 ns | 6.42 µs | 33.67 µs (33,667 ns) | 74.42 µs | 166.17 µs | 2.89 µs |
-| total added | 79,933 | 125 ns | 1.04 µs (1,041 ns) | 7.08 µs | 34.25 µs (34,250 ns) | 74.83 µs | 166.29 µs | 3.40 µs |
-| total added (steady) | 79,730 | 125 ns | 1.04 µs (1,041 ns) | 6.88 µs | 34.29 µs (34,291 ns) | 74.83 µs | 166.29 µs | 3.36 µs |
+| parse | 42,207 | 0 ns | 167 ns | 625 ns | 2.21 µs (2,208 ns) | 3.17 µs | 41.33 µs | 319 ns |
+| publish | 42,204 | 0 ns | 125 ns | 333 ns | 708 ns | 4.00 µs | 58.33 µs | 175 ns |
+| deliver | 109,571 | 0 ns | 375 ns | 1.83 µs | 13.29 µs (13,292 ns) | 389.25 µs | 8.03 ms | 2.13 µs |
+| deliver (steady) | 109,368 | 0 ns | 375 ns | 1.79 µs | 12.54 µs (12,541 ns) | 389.25 µs | 8.03 ms | 2.12 µs |
+| total added | 109,571 | 125 ns | 833 ns | 2.75 µs | 15.00 µs (15,000 ns) | 390.00 µs | 8.03 ms | 2.65 µs |
+| total added (steady) | 109,368 | 125 ns | 833 ns | 2.75 µs | 13.50 µs (13,500 ns) | 390.00 µs | 8.03 ms | 2.63 µs |
 
 Per-venue counters:
 
 | venue | connected | frames | events | fallbacks | parse errors | resync signals | lagged lost | unmatched deliver |
 |---|---|---|---|---|---|---|---|---|
-| binance | yes | 11,402 | 8,412 | 0 | 0 | 0 | 0 | 0 |
-| coinbase | yes | 6,719 | 125,559 | 0 | 0 | 0 | 0 | 0 |
-| kraken | yes | 29,882 | 79,933 | 0 | 0 | 0 | 0 | 0 |
+| binance | yes | 15,662 | 12,663 | 0 | 0 | 0 | 0 | 0 |
+| coinbase | yes | 8,528 | 169,317 | 0 | 0 | 0 | 0 | 0 |
+| kraken | yes | 42,207 | 109,571 | 0 | 0 | 0 | 0 | 0 |
 
 *src: `e2e_live.json`*
 
@@ -297,34 +297,34 @@ Per-venue counters:
 
 | venue | n | min | p50 | p90 | p99 | p999 | max | mean | clamped to 0 |
 |---|---|---|---|---|---|---|---|---|---|
-| binance | 8,412 | 37.60 ms | 41.21 ms (41,208,000 ns) | 43.55 ms | 46.62 ms (46,623,000 ns) | 78.53 ms | 87.53 ms | 41.56 ms | 0 |
-| coinbase | 6,718 | 0 ns | 0 ns | 0 ns | 10.87 ms (10,871,000 ns) | 34.21 ms | 718.46 ms | 400.58 µs | 6,504 **(mostly clamped — uninterpretable; use RTT file)** |
-| kraken | 29,579 | 0 ns | 0 ns | 8.92 ms | 36.72 ms (36,718,000 ns) | 85.42 ms | 105.42 ms | 2.62 ms | 23,031 **(mostly clamped — uninterpretable; use RTT file)** |
+| binance | 12,663 | 45.42 ms | 49.26 ms (49,262,000 ns) | 51.87 ms | 99.79 ms (99,794,000 ns) | 215.49 ms | 215.49 ms | 50.70 ms | 0 |
+| coinbase | 8,527 | 0 ns | 0 ns | 0 ns | 318.65 ms (318,653,000 ns) | 2.300 s | 2.545 s | 15.87 ms | 7,831 **(mostly clamped — uninterpretable; use RTT file)** |
+| kraken | 41,903 | 1.76 ms | 6.94 ms (6,942,000 ns) | 20.35 ms | 71.60 ms (71,602,000 ns) | 162.41 ms | 191.52 ms | 10.78 ms | 0 |
 
 *src: `e2e_live.json`*
 
-> **Producer notes (verbatim):** Decomposition of the LOCAL pipeline only, measured on live venue traffic (BTC-USD, one extra WS connection per venue, run alongside the capture soak). t0 = mono_ns when a WS text frame has been fully read; parse = t1-t0 (production codec fast path incl. serde_json fallback); publish = t2-t1 (bus ring publish of the frame's events, t2 stamped once per frame after all its publishes); deliver = t3-t2 per event (subscriber thread dequeue, matched to its frame via recv_mono_ns == t0); total_added = t3-t0. 'Exchange->subscriber added latency' = total_added: it starts at socket read and contains zero internet time by construction. VENUE PATH is context, NOT added by flashbook: venue_path = recv_wall - venue_ts per venue-stamped frame; it includes venue-side batching (Coinbase level2_batch ~50 ms, Binance depth@100ms cadence) + WAN transit + venue<->host wall-clock offset; bound venue-internal batching ~= venue_path - rtt/2 using e2e_rtt.json (approximation: symmetric path). LIMITATIONS: (1) TLS is terminated by an openssl s_client child; frames cross one extra pipe hop before t0, inflating the receive path by pipe latency but leaving parse/publish/deliver (which start at t0) untouched. (2) The ring subscriber yields every 256 empty polls (soak politeness); its wakeup cost is inside deliver. (3) No REST resync is wired, so Binance depth events stay unsynced and are dropped by the codec; Binance samples are dominated by trade frames (resync_signals counts the codec asking). (4) venue_path samples where the venue clock is ahead of local wall are clamped to 0 and counted (venue_path_clamped); a clamp count near n means the local-vs-venue wall-clock offset exceeds the one-way path and venue_path is uninterpretable without an offset correction — the RTT file is the trustworthy WAN bound in that case. (5) deliver saturates at 0 for events dequeued before their frame's t2 stamp was taken (t2 is per-frame, after ALL its publishes). (6) The initial full-book snapshot arrives as one enormous frame; its sequential per-event drain dominates event-weighted deliver/ total_added percentiles on short windows, so *_steady_ns (events without the FROM_SNAPSHOT flag) is published alongside and is the steady-state number.
+> **Producer notes (verbatim):** Decomposition of the LOCAL pipeline only, measured on live venue traffic (BTC-USD, one extra WS connection per venue, run alongside the capture soak). t0 = mono_ns when tungstenite yields a complete WS text frame; parse = t1-t0 (production codec fast path incl. serde_json fallback); publish = t2-t1 (bus ring publish of the frame's events, t2 stamped once per frame after all its publishes); deliver = t3-t2 per event (subscriber thread dequeue, matched to its frame via recv_mono_ns == t0); total_added = t3-t0. 'Exchange->subscriber added latency' = total_added: it starts at socket read and contains zero internet time by construction. VENUE PATH is context, NOT added by flashbook: venue_path = recv_wall - venue_ts per venue-stamped frame; it includes venue-side batching (Coinbase level2_batch ~50 ms, Binance depth@100ms cadence) + WAN transit + venue<->host wall-clock offset; bound venue-internal batching ~= venue_path - rtt/2 using e2e_rtt.json (approximation: symmetric path). TRANSPORT: the same WebSocket/TLS stack as the production capture path — tokio-tungstenite (connect_async) with rustls (native roots), TLS terminated in-process; t0 sits after TLS decrypt + WS frame assembly, matching production's receive stamp (no child process, no pipe hop). LIMITATIONS: (1) The ring subscriber yields every 256 empty polls (soak politeness); its wakeup cost is inside deliver. (2) No REST resync is wired, so Binance depth events stay unsynced and are dropped by the codec; Binance samples are dominated by trade frames (resync_signals counts the codec asking). (3) venue_path samples where the venue clock is ahead of local wall are clamped to 0 and counted (venue_path_clamped); a clamp count near n means the local-vs-venue wall-clock offset exceeds the one-way path and venue_path is uninterpretable without an offset correction — the RTT file is the trustworthy WAN bound in that case. (4) deliver saturates at 0 for events dequeued before their frame's t2 stamp was taken (t2 is per-frame, after ALL its publishes). (5) The initial full-book snapshot arrives as one enormous frame; its sequential per-event drain dominates event-weighted deliver/ total_added percentiles on short windows, so *_steady_ns (events without the FROM_SNAPSHOT flag) is published alongside and is the steady-state number.
 
 ### Internet RTT per venue (WS ping/pong)
 
 | venue | pings | pongs | n | min | p50 | p90 | p99 | p999 | max | mean |
 |---|---|---|---|---|---|---|---|---|---|---|
-| binance | 59 | 59 | 59 | 198.86 ms | 245.66 ms (245,656,625 ns) | 292.89 ms | 297.12 ms (297,117,208 ns) | 297.12 ms | 297.12 ms | 247.92 ms |
-| coinbase | 59 | 59 | 59 | 32.60 ms | 38.01 ms (38,009,416 ns) | 43.96 ms | 131.55 ms (131,550,791 ns) | 131.55 ms | 131.55 ms | 39.94 ms |
-| kraken | 59 | 59 | 59 | 94.99 ms | 103.99 ms (103,992,208 ns) | 109.10 ms | 117.97 ms (117,973,875 ns) | 117.97 ms | 117.97 ms | 104.09 ms |
+| binance | 60 | 59 | 59 | 171.07 ms | 223.38 ms (223,376,583 ns) | 266.01 ms | 271.01 ms (271,014,500 ns) | 271.01 ms | 271.01 ms | 223.23 ms |
+| coinbase | 59 | 59 | 59 | 26.92 ms | 27.90 ms (27,895,583 ns) | 31.76 ms | 34.60 ms (34,595,916 ns) | 34.60 ms | 34.60 ms | 28.56 ms |
+| kraken | 60 | 59 | 59 | 86.21 ms | 88.60 ms (88,599,875 ns) | 92.18 ms | 100.59 ms (100,592,208 ns) | 100.59 ms | 100.59 ms | 89.31 ms |
 
 *src: `e2e_rtt.json`* — small n by design; high percentiles saturate at max.
 
 Subtraction method, quoted from the result file notes:
-> **Producer notes (verbatim):** RTT method: every 5 s a WS Ping with an 8-byte little-endian mono_ns payload is sent; on the Pong echo, rtt = mono_ns - payload. Subtraction method for readers: venue-internal batching ~= venue_path (e2e_live.json) - rtt/2, an approximation that assumes a symmetric WAN path and instant pong turnaround. RTT includes the openssl s_client pipe hops in both directions (adds microseconds against millisecond WANs). n is small by design (one ping per 5 s); high percentiles saturate at the max accordingly.
+> **Producer notes (verbatim):** RTT method: every 5 s a WS Ping with an 8-byte little-endian mono_ns payload is sent; on the Pong echo, rtt = mono_ns - payload. Subtraction method for readers: venue-internal batching ~= venue_path (e2e_live.json) - rtt/2, an approximation that assumes a symmetric WAN path and instant pong turnaround. Pings and pongs travel the same in-process tungstenite+rustls transport as the data frames (the production capture stack; no child process or pipe hops). n is small by design (one ping per 5 s); high percentiles saturate at the max accordingly.
 
 ## Other result files (no dedicated renderer — listed so nothing committed is invisible)
 
-- `replay_verify_full.json` — not a ResultFile; top-level keys: books_digest, checksum_mismatches, checksums_ok, checksums_skipped, codec_resets, event_stream_digest, events, fallbacks, gaps, notes, parse_errors, records, rest_snapshots, span_mono_s, torn_tails, ws_frames. Notes: 74
+- `replay_verify_full.json` — not a ResultFile; top-level keys: books_digest, checksum_mismatches, checksums_ok, checksums_skipped, codec_resets, crossval_price_overlap_p50, crossval_price_overlap_p90, crossval_scored, crossval_snapshots, crossval_top10_overlap_p50, crossval_top10_overlap_p90, crossval_worst_overlap, event_stream_digest, events, fallbacks, gaps, notes, parse_errors, records, rest_snapshots, span_mono_s, torn_tails, ws_frames. Notes: 74
 
 ---
 
 Regenerate: `bash bench/render.sh --write` (after `./bench/run-all.sh`).
 
-Generated 2026-07-09T06:26:04Z from 12 result file(s) in `bench/results`: `bus_fanout.json`, `e2e_live.json`, `e2e_net.json`, `e2e_rtt.json`, `feed_alloc.json`, `feed_parse.json`, `lob_replay.json`, `replay_verify_full.json`, `store_compare.json`, `store_pit.json`, `store_scan.json`, `store_write.json`.
-Inputs sha256 (sorted concatenation of input file bytes): `6c38fd16332153c43ab8b1abbed037df3ccad57836cc4c6e13f312b507e8badb`.
+Generated 2026-07-09T16:23:20Z from 12 result file(s) in `bench/results`: `bus_fanout.json`, `e2e_live.json`, `e2e_net.json`, `e2e_rtt.json`, `feed_alloc.json`, `feed_parse.json`, `lob_replay.json`, `replay_verify_full.json`, `store_compare.json`, `store_pit.json`, `store_scan.json`, `store_write.json`.
+Inputs sha256 (sorted concatenation of input file bytes): `78896a711adee9ad62d240088be520cd198fcd654cf62fd08c282265d3c70ed8`.

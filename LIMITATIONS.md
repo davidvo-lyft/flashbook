@@ -67,9 +67,8 @@ measured consequences; ATTACKS.md carries the adversarial Q&A.
 - The store's analytical full-scan still trails DuckDB even after the v2
   pruned-column format (D-015): per-block zstd is not seekable, so pruning
   saves decode work but not decompression, and the fold is scalar where
-  DuckDB vectorizes. The published numbers say so. (The v2 official
-  re-measurement is gated on AC power for comparability with the other
-  sections; the current BENCHMARKS store table is the v1-format run.)
+  DuckDB vectorizes. Official v2 numbers: our scan 9.87s -> 7.13s (-28%),
+  DuckDB still ~38x faster. The published numbers say so.
 - The deployed dashboard serves an exported replay dataset (D-013), not a
   live feed; the README states this. It is evidence, not a product.
 

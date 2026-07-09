@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "e2e_rtt",
-  "created_unix_ms": 1783578179843,
+  "created_unix_ms": 1783614159619,
   "host": {
     "cpu": "Apple M5 Max",
     "cores": 18,
@@ -25,18 +25,18 @@
       "binance": {
         "connected": true,
         "note": "",
-        "pings_sent": 59,
+        "pings_sent": 60,
         "pongs_matched": 59,
         "rtt_ns": {
-          "max": 297117208,
-          "mean": 247920798.6440678,
-          "min": 198856917,
+          "max": 271014500,
+          "mean": 223229014.1016949,
+          "min": 171068042,
           "n": 59,
-          "p50": 245656625,
-          "p90": 292892417,
-          "p99": 297117208,
-          "p999": 297117208,
-          "stdev": 31206070.618090004
+          "p50": 223376583,
+          "p90": 266013166,
+          "p99": 271014500,
+          "p999": 271014500,
+          "stdev": 27796188.12755427
         }
       },
       "coinbase": {
@@ -45,35 +45,35 @@
         "pings_sent": 59,
         "pongs_matched": 59,
         "rtt_ns": {
-          "max": 131550791,
-          "mean": 39940495.13559322,
-          "min": 32600417,
+          "max": 34595916,
+          "mean": 28556238.66101695,
+          "min": 26919833,
           "n": 59,
-          "p50": 38009416,
-          "p90": 43964125,
-          "p99": 131550791,
-          "p999": 131550791,
-          "stdev": 13527183.4283893
+          "p50": 27895583,
+          "p90": 31757333,
+          "p99": 34595916,
+          "p999": 34595916,
+          "stdev": 1792625.8573899216
         }
       },
       "kraken": {
         "connected": true,
         "note": "",
-        "pings_sent": 59,
+        "pings_sent": 60,
         "pongs_matched": 59,
         "rtt_ns": {
-          "max": 117973875,
-          "mean": 104090047.94915254,
-          "min": 94994000,
+          "max": 100592208,
+          "mean": 89305942.10169491,
+          "min": 86214500,
           "n": 59,
-          "p50": 103992208,
-          "p90": 109099375,
-          "p99": 117973875,
-          "p999": 117973875,
-          "stdev": 4327616.117652845
+          "p50": 88599875,
+          "p90": 92183833,
+          "p99": 100592208,
+          "p999": 100592208,
+          "stdev": 3153890.039942265
         }
       }
     }
   },
-  "notes": "RTT method: every 5 s a WS Ping with an 8-byte little-endian mono_ns payload is sent; on the Pong echo, rtt = mono_ns - payload. Subtraction method for readers: venue-internal batching ~= venue_path (e2e_live.json) - rtt/2, an approximation that assumes a symmetric WAN path and instant pong turnaround. RTT includes the openssl s_client pipe hops in both directions (adds microseconds against millisecond WANs). n is small by design (one ping per 5 s); high percentiles saturate at the max accordingly."
+  "notes": "RTT method: every 5 s a WS Ping with an 8-byte little-endian mono_ns payload is sent; on the Pong echo, rtt = mono_ns - payload. Subtraction method for readers: venue-internal batching ~= venue_path (e2e_live.json) - rtt/2, an approximation that assumes a symmetric WAN path and instant pong turnaround. Pings and pongs travel the same in-process tungstenite+rustls transport as the data frames (the production capture stack; no child process or pipe hops). n is small by design (one ping per 5 s); high percentiles saturate at the max accordingly."
 }
