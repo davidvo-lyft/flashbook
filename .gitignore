@@ -2,6 +2,9 @@
 node_modules/
 *.tex
 resume*
+# personal/confidential resume bullet material — never commit
+*bullet-pairs*
+ericsson-gnp-aduna-bullet-pairs.md
 .next/
 out/
 .vercel
